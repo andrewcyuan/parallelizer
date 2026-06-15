@@ -17,6 +17,23 @@ The first implementation slice is intentionally local-first:
 - Prefer stdlib for implementation details: `pathlib`, `subprocess` with argument lists, `json`, `hashlib`, and `datetime`.
 - Keep command execution boring and explicit. Avoid shell strings except where shell semantics are required, such as sourcing `.parallelizer/functions.sh`.
 
+## Installation Helper
+The repo includes a uv-runnable installer script:
+- `uv run scripts/install_plr.py`
+
+The script installs the editable checkout as a uv tool:
+- `uv tool install --editable <repo> --python <current-major.minor>`
+
+Behavior:
+- Require `uv` to be available.
+- Require Python 3.10+.
+- Install the project in editable mode so local development changes are reflected.
+- Detect uv's tool executable directory with `uv tool dir --bin`.
+- If that directory is already on `PATH`, report success.
+- If it is not on `PATH`, print `uv tool update-shell`.
+- If `--update-shell` is passed, run `uv tool update-shell` for the user.
+- Support `--dry-run` for verification without mutating the user's tool install or shell config.
+
 ## Config
 Parallelizer reads config from two JSON files, in order:
 1. `~/.parallelizer/global_config.json`

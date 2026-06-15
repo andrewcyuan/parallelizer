@@ -9,6 +9,7 @@
 - [x] Provide `plr tree`, `plr sub`, `plr subagent`, `plr ls`, and `plr cd`.
 - [x] Provide FastMCP tools for core lifecycle operations.
 - [x] Add tests for config, setup, background status, and setup errors.
+- [x] Add a uv-runnable installer script for putting `plr` on PATH.
 
 ## Deferred
 - [ ] Config wizard.

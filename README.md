@@ -4,6 +4,26 @@ Parallelizer is a tool that lets a coding agent spawn subagents that have their 
 
 Parallelizer also comes with an MCP server that you can easily add to codex or claude.
 
+## Install
+
+From this repo:
+
+```bash
+uv run scripts/install_plr.py
+```
+
+This installs the `plr` command with `uv tool install --editable`. If uv's tool bin directory is not on your `PATH`, the script will print the command to add it:
+
+```bash
+uv tool update-shell
+```
+
+To let the installer run that PATH update for you:
+
+```bash
+uv run scripts/install_plr.py --update-shell
+```
+
 ## Philosophy
 1. __Parallelizer should not recreate your current tools. It should work seamlessly with them.__
 
@@ -113,7 +133,6 @@ claude mcp add --transport stdio parallelizer -- python <PATH_TO_REPO>/mcp_serve
 
 [ ] Call the subagent with model settings: `plr sub "complete task xyz" --model 'claude-fable-fast'`
 [ ] Make tmux helpers generic and then map to other multiplexers, such as kitty
-
 
 
 
