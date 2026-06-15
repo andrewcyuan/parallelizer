@@ -28,17 +28,22 @@ setup_environment() {
 
 ### Spawn a new subagent (or have your coding agent do it)
 ```bash
-plr subagent worker <prompt> <tree_name>
+plr subagent worker "Complete task xyz."
+# `plr sub` is the same command, just shorter.
+
 # Creates new worktree
 # cds into new worktree
 # Calls setup_environment()
 # Initializes coding agent
 
-plr tree <prompt> <tree_name>
+plr tree worker "Complete task xyz."
 # Does the same thing as subagent, but doesn't start running an agent.
 
 # Or call using a redirect! My favorite!
 cat FEATURE_PLAN_1.md | plr sub "feature-1"
+
+# Agent/MCP usage can run in the background.
+plr sub worker "Complete task xyz." --background
 ```
 
 ### Monitor agents
@@ -84,10 +89,9 @@ Should be set up in a wizard upon installation. Or go through it again with:
 ``
 
 ```json
-# ~/.parallelizer/global_config.json
-
 {
-	"default_coding_agent": "codex", //codex, claude supported
+	"default_coding_agent": "codex",
+	"worktree_root": "~/.parallelizer/worktrees"
 }
 
 ```
@@ -109,8 +113,6 @@ claude mcp add --transport stdio parallelizer -- python <PATH_TO_REPO>/mcp_serve
 
 [ ] Call the subagent with model settings: `plr sub "complete task xyz" --model 'claude-fable-fast'`
 [ ] Make tmux helpers generic and then map to other multiplexers, such as kitty
-
-
 
 
 
