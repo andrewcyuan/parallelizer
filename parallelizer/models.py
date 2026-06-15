@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass(frozen=True)
@@ -31,9 +31,14 @@ class TreeRecord:
     created_at: str = ""
     updated_at: str = ""
     exit_code: Optional[int] = None
+    model: Optional[str] = None
+    agent_args: Optional[List[str]] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TreeRecord":
+        data = {**data}
+        data.setdefault("model", None)
+        data.setdefault("agent_args", None)
         return cls(**data)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -54,4 +59,6 @@ class TreeRecord:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "exit_code": self.exit_code,
+            "model": self.model,
+            "agent_args": self.agent_args,
         }

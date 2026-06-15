@@ -56,6 +56,8 @@ Template variables:
 - `{worktree}`: absolute worktree path.
 - `{prompt}`: full prompt text.
 
+`plr init` is the global config initializer. It asks for `codex` or `claude`, writes `default_coding_agent` to `~/.parallelizer/global_config.json`, preserves unknown keys, and creates the parent directory as needed.
+
 ## Project Identity And Paths
 Parallelizer must be runnable from anywhere inside a git repository. It resolves the source repo with `git rev-parse --show-toplevel`.
 
@@ -134,6 +136,8 @@ Each tree record stores:
 - `created_at`
 - `updated_at`
 - `exit_code`
+- `model`
+- `agent_args`
 
 Timestamps are UTC ISO strings.
 
@@ -161,6 +165,12 @@ Background mode:
 
 The background process recorded in state is the runner pid, not necessarily the final agent pid. This gives `plr ls` a process that can be polled and lets the runner record reliable completion status.
 
+Agent command augmentation:
+- `--model` maps to `--model <value>` for built-in `codex` and `claude` agents.
+- `--model` is rejected for unknown/custom agents unless users encode model behavior in their command templates.
+- Repeatable `--agent-arg` values are appended before the prompt argument.
+- Command templates remain the source of truth; model and extra args augment the resolved template.
+
 ## Status Semantics
 `plr ls` combines persisted state with `git worktree list --porcelain` and process polling.
 
@@ -175,11 +185,15 @@ Do not delete worktrees or state automatically in v1.
 
 ## CLI Contract
 Implemented commands:
+- `plr init`
 - `plr tree [name] [prompt...]`
 - `plr sub [name] [prompt...]`
 - `plr subagent [name] [prompt...]` as an alias for `plr sub`
 - `plr ls`
 - `plr cd [name]`
+- `plr open [name]`
+- `plr agent manager [prompt...]`
+- `plr agent setup_plr [prompt...]`
 
 Prompt handling:
 - If prompt arguments are present, join them with spaces.
@@ -199,20 +213,34 @@ Prompt handling:
 - Defaults to interactive mode.
 - Supports `--background` for agent/MCP-style background execution.
 - Supports `--agent` to override the configured default agent.
+- Supports `--model` for Codex/Claude and repeatable `--agent-arg`.
 
 `plr ls`:
 - Prints a compact table with name, status, agent, pid, branch, path, and log.
 
 `plr cd [name]`:
 - Prints a worktree path suitable for command substitution, e.g. `cd "$(plr cd worker-1)"`.
-- If no name is provided, v1 may use a simple numbered terminal selector.
+- If no name is provided and the terminal is interactive, use `fzf` when available.
+- If `fzf` is unavailable, fall back to a numbered selector.
+- If no name is provided in a non-interactive context, fail clearly.
 
-Deferred commands should exist as explicit placeholders where helpful:
-- `plr open`
-- `plr agent manager`
-- `plr agent setup_plr`
+`plr open [name]`:
+- Selects a worktree using the same name/fzf/numbered flow as `plr cd`.
+- Requires an active tmux session via `TMUX`.
+- Runs `tmux split-window -c <worktree-path>`.
+- Fails clearly with the path and tmux error if tmux cannot open the pane.
 
-Placeholders should fail clearly with "not implemented yet" messaging.
+`plr agent manager`:
+- Runs the configured/default agent interactively in the current repo.
+- Accepts task prompt from args or stdin.
+- Generates a coordinator prompt instructing the agent to confirm decomposition, spawn subagents with `plr sub --background`, poll `plr ls`, wait according to `--interval`, and surface blockers.
+- Supports `--agent`, `--model`, and repeatable `--agent-arg`.
+
+`plr agent setup_plr`:
+- Runs the configured/default agent interactively in the current repo.
+- Accepts additional guidance from args or stdin.
+- Generates a setup prompt instructing the agent to create/update `.parallelizer/functions.sh` with `setup_environment`, and only create `.parallelizer/local_config.json` when local overrides are genuinely useful.
+- Supports `--agent`, `--model`, and repeatable `--agent-arg`.
 
 ## MCP Contract
 The MCP server must expose only core lifecycle tools in v1. It should not expose manager-agent routes.
@@ -241,16 +269,16 @@ Minimum scenarios:
 - Background agent nonzero exit updates status to `error`.
 - `plr ls` status refresh behavior.
 - MCP tool handlers call the same service layer as CLI commands.
+- `plr init` preserves unknown global config keys.
+- Model and passthrough args are inserted before prompts.
+- Manager/setup prompt generation includes operational instructions.
+- `plr cd` selector handles explicit, fzf, numbered, and non-interactive paths.
+- `plr open` calls tmux split-window and handles missing tmux/session cases.
 
 Use temporary git repositories for integration tests. Keep test worktree roots and HOME redirected into temporary directories.
 
 ## Deferred Work
 These are intentionally outside the v1 implementation:
-- Config wizard.
-- Manager agent workflow.
-- `plr agent setup_plr`.
-- Tmux helpers via `plr open`.
-- Model/settings flags for agent invocation.
 - Generic multiplexer abstraction.
 - Automatic cleanup of merged/deleted worktrees.
-- Rich interactive selector for `plr cd`.
+- Rich status detection for agents awaiting input.

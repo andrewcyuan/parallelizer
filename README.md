@@ -24,6 +24,14 @@ To let the installer run that PATH update for you:
 uv run scripts/install_plr.py --update-shell
 ```
 
+Then initialize the global default agent once:
+
+```bash
+plr init
+# or
+plr init --agent claude
+```
+
 ## Philosophy
 1. __Parallelizer should not recreate your current tools. It should work seamlessly with them.__
 
@@ -64,6 +72,9 @@ cat FEATURE_PLAN_1.md | plr sub "feature-1"
 
 # Agent/MCP usage can run in the background.
 plr sub worker "Complete task xyz." --background
+
+# Optional model and extra agent args for codex/claude.
+plr sub worker "Complete task xyz." --model gpt-5 --agent-arg=--search
 ```
 
 ### Monitor agents
@@ -84,13 +95,13 @@ cat BIG_TASK_PLAN.md | plr agent manager
 # Discuss/confirm with the user how to break the given task down using subagents.
 # Check in on agents using plr ls every <interval> seconds using sleep calls, flag the user when there are agents that need help!
 
-plr agent setup_plr # Opens an agent to set up the per repo environment config.
+plr agent setup_plr # Opens an agent to create/update .parallelizer/functions.sh for this repo.
 ```
 
 __Tmux helpers__
 ```bash
 plr open [worktree_name] # Leave blank to get a selector, like fzf
-# Opens the worktree in a new tmux pane! Really only makes sense for agent usage; otherwise you would just use plr cd
+# Opens the worktree in a new tmux pane when run inside tmux.
 ```
 
 
@@ -106,7 +117,10 @@ Optional overrides for project. Mirrors the global config.
 
 ## Global config
 Should be set up in a wizard upon installation. Or go through it again with:
-``
+
+```bash
+plr init
+```
 
 ```json
 {
@@ -131,10 +145,7 @@ claude mcp add --transport stdio parallelizer -- python <PATH_TO_REPO>/mcp_serve
 
 ## Future features
 
-[ ] Call the subagent with model settings: `plr sub "complete task xyz" --model 'claude-fable-fast'`
 [ ] Make tmux helpers generic and then map to other multiplexers, such as kitty
-
-
 
 
 

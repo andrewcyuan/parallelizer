@@ -5,11 +5,14 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from parallelizer.config import load_config
+from parallelizer import cli
+from parallelizer.config import load_config, write_global_default_agent
 from parallelizer.errors import ParallelizerError
+from parallelizer.prompts import manager_prompt, setup_plr_prompt
 from parallelizer.service import ParallelizerService
 
 
@@ -61,6 +64,27 @@ def test_background_agent_updates_status(tmp_path: Path, monkeypatch: pytest.Mon
     assert refreshed["exit_code"] == 0
 
 
+def test_background_agent_persists_model_and_agent_args(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _init_repo(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    _write_config(repo, tmp_path / "worktrees")
+    service = ParallelizerService(repo)
+
+    service.create_subagent(
+        "do fake work",
+        name="gamma",
+        agent="fake",
+        background=True,
+        agent_args=["--flag"],
+    )
+    _wait_for_done(service, "gamma")
+    refreshed = service.worktree_info("gamma")
+
+    assert refreshed["agent_args"] == ["--flag"]
+
+
 def test_setup_missing_function_preserves_error_record(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -76,6 +100,100 @@ def test_setup_missing_function_preserves_error_record(
     assert record["status"] == "error"
     assert record["setup_status"] == "error"
     assert Path(record["worktree_path"]).exists()
+
+
+def test_global_init_preserves_unknown_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    config_dir = home / ".parallelizer"
+    config_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    config_file = config_dir / "global_config.json"
+    config_file.write_text(json.dumps({"worktree_root": "/tmp/plr", "default_coding_agent": "codex"}))
+
+    written = write_global_default_agent("claude")
+    data = json.loads(written.read_text())
+
+    assert data == {"default_coding_agent": "claude", "worktree_root": "/tmp/plr"}
+
+
+def test_known_agent_command_inserts_model_and_agent_args(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _init_repo(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    service = ParallelizerService(repo)
+
+    command = service.agent_command(
+        "codex",
+        "interactive",
+        repo,
+        "do it",
+        model="gpt-test",
+        agent_args=["--search"],
+    )
+
+    assert command == ["codex", "--cd", str(repo), "--model", "gpt-test", "--search", "do it"]
+
+
+def test_unknown_agent_rejects_model_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = _init_repo(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    _write_config(repo, tmp_path / "worktrees")
+    service = ParallelizerService(repo)
+
+    with pytest.raises(ParallelizerError, match="only supported"):
+        service.agent_command("fake", "interactive", repo, "do it", model="x")
+
+
+def test_manager_and_setup_prompts_include_operational_instructions() -> None:
+    manager = manager_prompt("ship feature", 7)
+    setup = setup_plr_prompt("use port offsets")
+
+    assert "plr sub <name>" in manager
+    assert "Sleep for 7 seconds" in manager
+    assert "ship feature" in manager
+    assert "setup_environment" in setup
+    assert "use port offsets" in setup
+
+
+def test_resolve_record_requires_name_when_not_interactive(monkeypatch: pytest.MonkeyPatch) -> None:
+    record = SimpleNamespace(name="alpha", status="done", worktree_path="/tmp/alpha")
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    with pytest.raises(ParallelizerError, match="required"):
+        cli._resolve_record_name([record], None)
+
+
+def test_resolve_record_uses_fzf(monkeypatch: pytest.MonkeyPatch) -> None:
+    record = SimpleNamespace(name="alpha", status="done", worktree_path="/tmp/alpha")
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli.shutil, "which", lambda name: "/bin/fzf" if name == "fzf" else None)
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="alpha\tdone\t/tmp/alpha\n"),
+    )
+
+    assert cli._resolve_record_name([record], None) == "alpha"
+
+
+def test_open_tmux_runs_split_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+    service = SimpleNamespace(
+        list_records=lambda: [SimpleNamespace(name="alpha", status="done", worktree_path="/tmp/alpha")],
+        worktree_info=lambda name: {"worktree_path": "/tmp/alpha"},
+    )
+    monkeypatch.setenv("TMUX", "tmux-session")
+    monkeypatch.setattr(cli.shutil, "which", lambda name: "/opt/bin/tmux" if name == "tmux" else None)
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda command, **kwargs: calls.append(command) or SimpleNamespace(returncode=0, stderr="", stdout=""),
+    )
+
+    cli._open_tmux(service, "alpha")
+
+    assert calls == [["tmux", "split-window", "-c", "/tmp/alpha"]]
 
 
 def _init_repo(tmp_path: Path, setup_body: str | None = None) -> Path:

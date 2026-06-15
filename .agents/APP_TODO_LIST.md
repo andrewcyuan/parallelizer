@@ -10,12 +10,15 @@
 - [x] Provide FastMCP tools for core lifecycle operations.
 - [x] Add tests for config, setup, background status, and setup errors.
 - [x] Add a uv-runnable installer script for putting `plr` on PATH.
+- [x] Add `plr init` for one-time global default-agent config.
+- [x] Implement `plr agent manager` as an interactive coordinator agent.
+- [x] Implement `plr agent setup_plr` as an interactive repo setup agent.
+- [x] Implement `plr open` tmux split-pane helper.
+- [x] Add model and passthrough flags for agent invocation.
+- [x] Add fzf-backed selector with numbered fallback for `plr cd` and `plr open`.
+- [x] Isolate tmux behavior behind helper code so non-tmux multiplexers can be added later.
 
-## Deferred
-- [ ] Config wizard.
-- [ ] `plr agent manager`.
-- [ ] `plr agent setup_plr`.
-- [ ] `plr open` tmux helper.
-- [ ] Model/settings flags for agent invocation.
-- [ ] Generic multiplexer support beyond tmux.
-- [ ] More polished interactive selector for `plr cd`.
+## Future
+- [ ] Add non-tmux multiplexer backends, such as kitty.
+- [ ] Add automatic cleanup for merged/deleted worktrees.
+- [ ] Add richer status detection for agents awaiting input.

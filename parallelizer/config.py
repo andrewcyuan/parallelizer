@@ -33,6 +33,23 @@ def load_config(repo_root: Path) -> Dict[str, Any]:
     return config
 
 
+def write_global_default_agent(agent: str) -> Path:
+    if agent not in {"codex", "claude"}:
+        raise ParallelizerError("Default coding agent must be either 'codex' or 'claude'.")
+    path = Path("~/.parallelizer/global_config.json").expanduser()
+    config: Dict[str, Any] = {}
+    if path.exists():
+        config = _read_json(path)
+    config["default_coding_agent"] = agent
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
+        json.dump(config, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    tmp.replace(path)
+    return path
+
+
 def _read_json(path: Path) -> Dict[str, Any]:
     try:
         with path.open("r", encoding="utf-8") as handle:

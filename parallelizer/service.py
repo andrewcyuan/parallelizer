@@ -54,22 +54,33 @@ class ParallelizerService:
         name: Optional[str] = None,
         agent: Optional[str] = None,
         background: bool = False,
+        model: Optional[str] = None,
+        agent_args: Optional[List[str]] = None,
     ) -> TreeRecord:
         if not prompt.strip():
             raise ParallelizerError("A prompt is required to start a subagent.")
         record = self.create_tree(name=name, prompt=prompt)
         selected_agent = agent or str(self.config.get("default_coding_agent", "codex"))
         if background:
-            self.start_background_agent(record, selected_agent, prompt)
+            self.start_background_agent(record, selected_agent, prompt, model, agent_args)
         else:
             record.agent = selected_agent
             record.mode = "interactive"
+            record.model = model
+            record.agent_args = agent_args or []
             record.updated_at = utc_now()
             self.state.put(record)
         return record
 
-    def start_background_agent(self, record: TreeRecord, agent: str, prompt: str) -> None:
-        command = self._agent_command(agent, "background", Path(record.worktree_path), prompt)
+    def start_background_agent(
+        self,
+        record: TreeRecord,
+        agent: str,
+        prompt: str,
+        model: Optional[str] = None,
+        agent_args: Optional[List[str]] = None,
+    ) -> None:
+        command = self.agent_command(agent, "background", Path(record.worktree_path), prompt, model, agent_args)
         log_path = Path("~/.parallelizer/logs").expanduser() / self.project.slug / f"{record.name}.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
         runner_command = [
@@ -100,18 +111,48 @@ class ParallelizerService:
         record.pid = proc.pid
         record.log_path = str(log_path)
         record.status = "running"
+        record.model = model
+        record.agent_args = agent_args or []
         record.updated_at = utc_now()
         self.state.put(record)
 
     def interactive_command(self, record: TreeRecord) -> List[str]:
         if not record.agent:
             raise ParallelizerError("Record has no agent configured.")
-        return self._agent_command(
+        return self.agent_command(
             record.agent,
             "interactive",
             Path(record.worktree_path),
             record.prompt_summary,
+            record.model,
+            record.agent_args,
         )
+
+    def current_repo_agent_command(
+        self,
+        prompt: str,
+        agent: Optional[str] = None,
+        model: Optional[str] = None,
+        agent_args: Optional[List[str]] = None,
+    ) -> List[str]:
+        selected_agent = agent or str(self.config.get("default_coding_agent", "codex"))
+        return self.agent_command(selected_agent, "interactive", self.project.root, prompt, model, agent_args)
+
+    def agent_command(
+        self,
+        agent: str,
+        mode: str,
+        worktree: Path,
+        prompt: str,
+        model: Optional[str] = None,
+        agent_args: Optional[List[str]] = None,
+    ) -> List[str]:
+        agents = self.config.get("agents", {})
+        template = agents.get(agent, {}).get(mode)
+        if not template:
+            raise ParallelizerError(f"No {mode} command template configured for agent: {agent}")
+        extras = self._agent_extras(agent, model, agent_args or [])
+        return self._format_agent_command(template, worktree, prompt, extras)
 
     def list_records(self) -> List[TreeRecord]:
         git_paths = self._git_worktree_paths()
@@ -203,12 +244,34 @@ class ParallelizerService:
             raise ParallelizerError(f"Setup failed for {record.name}: {record.setup_error}")
         record.setup_status = "done"
 
-    def _agent_command(self, agent: str, mode: str, worktree: Path, prompt: str) -> List[str]:
-        agents = self.config.get("agents", {})
-        template = agents.get(agent, {}).get(mode)
-        if not template:
-            raise ParallelizerError(f"No {mode} command template configured for agent: {agent}")
-        return [str(part).format(worktree=str(worktree), prompt=prompt) for part in template]
+    def _agent_extras(self, agent: str, model: Optional[str], agent_args: List[str]) -> List[str]:
+        extras: List[str] = []
+        if model:
+            if agent in {"codex", "claude"}:
+                extras.extend(["--model", model])
+            else:
+                raise ParallelizerError("--model is only supported for codex and claude agents.")
+        extras.extend(agent_args)
+        return extras
+
+    def _format_agent_command(
+        self,
+        template: List[str],
+        worktree: Path,
+        prompt: str,
+        extras: List[str],
+    ) -> List[str]:
+        prompt_index = self._prompt_template_index(template)
+        formatted = [str(part).format(worktree=str(worktree), prompt=prompt) for part in template]
+        if prompt_index is None:
+            return [*formatted, *extras, prompt]
+        return [*formatted[:prompt_index], *extras, *formatted[prompt_index:]]
+
+    def _prompt_template_index(self, template: List[str]) -> Optional[int]:
+        for index, part in enumerate(template):
+            if "{prompt}" in str(part):
+                return index
+        return None
 
     def _git_worktree_paths(self) -> set[str]:
         paths: set[str] = set()
