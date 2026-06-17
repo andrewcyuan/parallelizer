@@ -189,9 +189,22 @@ plr init
 ```
 
 ## MCP Server usage
-Features excluded from the mcp:
+The MCP server exposes everything the agent-facing CLI does, except:
 * The `plr agent` routes. These are meant to be used as top level. Middle management works badly enough in the human world.
 
+MCP tools: `create_subagent`, `create_tree`, `list_worktrees`, `worktree_info`,
+`run_in_worktree`, `merge_worktree`, `remove_worktree`, and `instructions`.
+
+### Quick add
+Run this from inside the parallelizer repo. It wires up the server using the
+current repo as the path automatically:
+
+```bash
+plr mcp add claude   # registers globally (claude --scope user)
+plr mcp add codex
+```
+
+### Manual add
 The server's dependencies (and the `parallelizer` package itself) live in uv's
 environment, so launch it with `uv run`. Use `--project` rather than
 `--directory`: the server operates on your current working directory, and

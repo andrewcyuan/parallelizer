@@ -213,6 +213,26 @@ class ParallelizerService:
         merge_branch(self.project.root, record.branch, no_ff=no_ff, squash=squash)
         return self.remove_tree(name, force_cleanup=force_cleanup)
 
+    def run_in_worktree(self, name: str, command: List[str]) -> Dict[str, Any]:
+        if not command:
+            raise ParallelizerError("A command is required to run in a worktree.")
+        record = self._record_for_action(name)
+        result = subprocess.run(
+            command,
+            cwd=record.worktree_path,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        return {
+            "name": record.name,
+            "worktree_path": record.worktree_path,
+            "command": command,
+            "exit_code": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
+
     def _project(self, root: Path) -> Project:
         digest = hashlib.sha1(str(root).encode("utf-8")).hexdigest()[:8]
         safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", root.name).strip("-") or "repo"

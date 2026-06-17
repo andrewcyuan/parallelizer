@@ -13,6 +13,7 @@ import typer
 from .agent_event import apply_event
 from .config import write_global_default_agent
 from .errors import ParallelizerError
+from .git_utils import repo_root
 from .models import TreeRecord
 from .prompts import manager_prompt, plr_instructions_markdown, setup_plr_prompt
 from .service import ParallelizerService
@@ -20,6 +21,8 @@ from .service import ParallelizerService
 app = typer.Typer(no_args_is_help=True, help="Spawn coding subagents in git worktrees.")
 agent_app = typer.Typer(help="Agent management helpers.")
 app.add_typer(agent_app, name="agent")
+mcp_app = typer.Typer(no_args_is_help=True, help="MCP server management helpers.")
+app.add_typer(mcp_app, name="mcp")
 
 
 def main() -> None:
@@ -115,6 +118,15 @@ def merge(
 def instructions() -> None:
     """Print markdown instructions for coding agents."""
     typer.echo(plr_instructions_markdown().rstrip())
+
+
+@mcp_app.command("add")
+def mcp_add(
+    agent: str = typer.Argument(..., help="Coding agent to configure: claude or codex."),
+    scope: str = typer.Option("user", "--scope", help="Config scope passed to claude (claude only)."),
+) -> None:
+    """Register the Parallelizer MCP server with claude or codex, using this repo as the path."""
+    _mcp_add(agent, scope)
 
 
 @agent_app.command()
@@ -316,6 +328,41 @@ def _remove(service: ParallelizerService, names: List[str], force: bool) -> None
 def _merge(service: ParallelizerService, name: str, no_ff: bool, squash: bool, force: bool) -> None:
     record = service.merge_tree(name, no_ff=no_ff, squash=squash, force_cleanup=force)
     typer.echo(f"Merged {record.branch} and removed {record.name}\t{record.worktree_path}")
+
+
+def _mcp_add(agent: str, scope: str) -> None:
+    selected = agent.strip().lower()
+    if selected not in {"claude", "codex"}:
+        typer.echo("Error: agent must be 'claude' or 'codex'.", err=True)
+        raise typer.Exit(1)
+    try:
+        repo = _parallelizer_repo_root(Path.cwd())
+    except ParallelizerError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    if not shutil.which(selected):
+        typer.echo(f"Error: '{selected}' was not found on PATH.", err=True)
+        raise typer.Exit(1)
+    launch = ["uv", "run", "--project", str(repo), "python", str(repo / "mcp_server.py")]
+    if selected == "codex":
+        command = ["codex", "mcp", "add", "parallelizer", "--", *launch]
+    else:
+        command = ["claude", "mcp", "add", "--scope", scope, "--transport", "stdio", "parallelizer", "--", *launch]
+    result = subprocess.run(command, check=False)
+    raise typer.Exit(result.returncode)
+
+
+def _parallelizer_repo_root(cwd: Path) -> Path:
+    root = repo_root(cwd)
+    pyproject = root / "pyproject.toml"
+    is_parallelizer = (
+        (root / "mcp_server.py").exists()
+        and pyproject.exists()
+        and 'name = "parallelizer"' in pyproject.read_text(encoding="utf-8")
+    )
+    if not is_parallelizer:
+        raise ParallelizerError("plr mcp add must be run from inside the parallelizer repository.")
+    return root
 
 
 def _resolve_record_name(records: List[TreeRecord], name: Optional[str]) -> str:
