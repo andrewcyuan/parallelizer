@@ -14,8 +14,10 @@ from typer.testing import CliRunner
 from parallelizer import cli
 from parallelizer.config import load_config, write_global_default_agent
 from parallelizer.errors import ParallelizerError
+from parallelizer.models import TreeRecord
 from parallelizer.prompts import manager_prompt, plr_instructions_markdown, setup_plr_prompt
 from parallelizer.service import ParallelizerService
+from parallelizer.state import StateStore
 
 runner = CliRunner()
 
@@ -116,6 +118,67 @@ def test_background_agent_persists_model_and_agent_args(
     assert refreshed["agent_args"] == ["--flag"]
 
 
+def test_agent_event_permission_request_stores_bounded_summary(tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    record = _record("alpha", tmp_path / "alpha")
+    record.agent = "codex"
+    StateStore(state_file).put(record)
+    long_summary = "x" * 400
+
+    result = runner.invoke(
+        cli.app,
+        ["agent", "event", "alpha", "permission-request", "--state-file", str(state_file)],
+        input=json.dumps({"tool_name": "Bash", "summary": long_summary, "command": "rm -rf build"}),
+    )
+
+    assert result.exit_code == 0
+    stored = StateStore(state_file).get("alpha")
+    assert stored is not None
+    assert stored.pending_permission is not None
+    assert stored.pending_permission["agent"] == "codex"
+    assert stored.pending_permission["tool"] == "Bash"
+    assert len(stored.pending_permission["summary"]) <= 240
+    assert stored.pending_permission["payload"]["command"] == "rm -rf build"
+    assert stored.pending_permission["requested_at"]
+
+
+def test_agent_event_clear_removes_pending_permission(tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    record = _record("alpha", tmp_path / "alpha")
+    record.pending_permission = {"agent": "codex", "tool": "Bash", "summary": "needs permission"}
+    StateStore(state_file).put(record)
+
+    result = runner.invoke(
+        cli.app,
+        ["agent", "event", "alpha", "clear-permission", "--state-file", str(state_file)],
+        input=json.dumps({"tool_name": "Bash"}),
+    )
+
+    assert result.exit_code == 0
+    stored = StateStore(state_file).get("alpha")
+    assert stored is not None
+    assert stored.pending_permission is None
+
+
+def test_agent_event_bad_or_empty_stdin_does_not_crash(tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    StateStore(state_file).put(_record("alpha", tmp_path / "alpha"))
+
+    bad = runner.invoke(
+        cli.app,
+        ["agent", "event", "alpha", "permission-request", "--state-file", str(state_file)],
+        input="{not json",
+    )
+    empty = runner.invoke(
+        cli.app,
+        ["agent", "event", "alpha", "clear-permission", "--state-file", str(state_file)],
+        input="",
+    )
+
+    assert bad.exit_code == 0
+    assert empty.exit_code == 0
+
+
 def test_setup_missing_function_preserves_error_record(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -131,6 +194,64 @@ def test_setup_missing_function_preserves_error_record(
     assert record["status"] == "error"
     assert record["setup_status"] == "error"
     assert Path(record["worktree_path"]).exists()
+
+
+def test_status_uses_pending_permission_for_running_agent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _init_repo(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    _write_config(repo, tmp_path / "worktrees")
+    service = ParallelizerService(repo)
+    record = service.create_tree(name="alpha")
+    record.mode = "background"
+    record.agent = "codex"
+    record.pid = os.getpid()
+    record.pending_permission = {"agent": "codex", "tool": "Bash", "summary": "needs permission"}
+    service.state.put(record)
+
+    info = service.worktree_info("alpha")
+
+    assert info["status"] == "awaiting-permission"
+
+
+def test_status_returns_running_after_permission_clear(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _init_repo(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    _write_config(repo, tmp_path / "worktrees")
+    service = ParallelizerService(repo)
+    record = service.create_tree(name="alpha")
+    record.mode = "background"
+    record.agent = "codex"
+    record.pid = os.getpid()
+    record.pending_permission = None
+    service.state.put(record)
+
+    info = service.worktree_info("alpha")
+
+    assert info["status"] == "running"
+
+
+def test_status_reports_permission_required_for_failed_agent_with_pending_permission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _init_repo(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    _write_config(repo, tmp_path / "worktrees")
+    service = ParallelizerService(repo)
+    record = service.create_tree(name="alpha")
+    record.mode = "background"
+    record.agent = "codex"
+    record.pid = os.getpid()
+    record.exit_code = 1
+    record.pending_permission = {"agent": "codex", "tool": "Bash", "summary": "needs permission"}
+    service.state.put(record)
+
+    info = service.worktree_info("alpha")
+
+    assert info["status"] == "permission-required"
 
 
 def test_remove_tree_runs_cleanup_and_deletes_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -512,6 +633,81 @@ def test_known_agent_command_inserts_model_and_agent_args(
     assert command == ["codex", "--cd", str(repo), "--model", "gpt-test", "--search", "do it"]
 
 
+def test_codex_background_command_injects_permission_hooks_before_agent_args(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _init_repo(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    service = ParallelizerService(repo)
+
+    command = service.agent_command(
+        "codex",
+        "background",
+        repo,
+        "do it",
+        agent_args=["--dangerously-bypass-approvals"],
+        hook_record_name="alpha",
+        hook_state_file=tmp_path / "state.json",
+    )
+
+    assert command[:4] == ["codex", "exec", "--cd", str(repo)]
+    assert "hooks.PermissionRequest" in command[5]
+    assert "parallelizer.agent_event alpha permission-request" in command[5]
+    assert "hooks.PreToolUse" in command[7]
+    assert "hooks.PostToolUse" in command[9]
+    assert "hooks.Stop" in command[11]
+    assert command[-2:] == ["--dangerously-bypass-approvals", "do it"]
+
+
+def test_claude_background_command_injects_permission_hook_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _init_repo(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    service = ParallelizerService(repo)
+
+    command = service.agent_command(
+        "claude",
+        "background",
+        repo,
+        "do it",
+        agent_args=["--verbose"],
+        hook_record_name="alpha",
+        hook_state_file=tmp_path / "state.json",
+    )
+
+    assert command[:2] == ["claude", "-p"]
+    settings = json.loads(command[3])
+    assert command[2] == "--settings"
+    assert "PermissionRequest" in settings["hooks"]
+    assert "PreToolUse" in settings["hooks"]
+    assert "PostToolUse" in settings["hooks"]
+    assert "Stop" in settings["hooks"]
+    assert "parallelizer.agent_event alpha permission-request" in json.dumps(settings)
+    assert command[-2:] == ["--verbose", "do it"]
+
+
+def test_fake_background_command_does_not_inject_permission_hooks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _init_repo(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    _write_config(repo, tmp_path / "worktrees")
+    service = ParallelizerService(repo)
+
+    command = service.agent_command(
+        "fake",
+        "background",
+        repo,
+        "do it",
+        agent_args=["--flag"],
+        hook_record_name="alpha",
+        hook_state_file=tmp_path / "state.json",
+    )
+
+    assert command == [sys.executable, "-c", "print('agent ok')", "--flag", "do it"]
+
+
 def test_unknown_agent_rejects_model_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = _init_repo(tmp_path)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
@@ -705,3 +901,15 @@ def _commit(cwd: Path, message: str) -> None:
 
 def _run(args: list[str], cwd: Path) -> None:
     subprocess.run(args, cwd=cwd, text=True, capture_output=True, check=True)
+
+
+def _record(name: str, worktree: Path) -> TreeRecord:
+    return TreeRecord(
+        name=name,
+        source_repo=str(worktree.parent),
+        worktree_path=str(worktree),
+        branch=f"plr/{name}",
+        allocation_number=1,
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+    )

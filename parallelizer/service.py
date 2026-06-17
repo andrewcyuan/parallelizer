@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -80,7 +81,16 @@ class ParallelizerService:
         model: Optional[str] = None,
         agent_args: Optional[List[str]] = None,
     ) -> None:
-        command = self.agent_command(agent, "background", Path(record.worktree_path), prompt, model, agent_args)
+        command = self.agent_command(
+            agent,
+            "background",
+            Path(record.worktree_path),
+            prompt,
+            model,
+            agent_args,
+            hook_record_name=record.name,
+            hook_state_file=self.project.state_file,
+        )
         log_path = Path("~/.parallelizer/logs").expanduser() / self.project.slug / f"{record.name}.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
         runner_command = [
@@ -146,12 +156,21 @@ class ParallelizerService:
         prompt: str,
         model: Optional[str] = None,
         agent_args: Optional[List[str]] = None,
+        hook_record_name: Optional[str] = None,
+        hook_state_file: Optional[Path] = None,
     ) -> List[str]:
         agents = self.config.get("agents", {})
         template = agents.get(agent, {}).get(mode)
         if not template:
             raise ParallelizerError(f"No {mode} command template configured for agent: {agent}")
-        extras = self._agent_extras(agent, model, agent_args or [])
+        extras = self._agent_extras(
+            agent,
+            mode,
+            model,
+            agent_args or [],
+            hook_record_name=hook_record_name,
+            hook_state_file=hook_state_file,
+        )
         return self._format_agent_command(template, worktree, prompt, extras)
 
     def list_records(self) -> List[TreeRecord]:
@@ -306,20 +325,77 @@ class ParallelizerService:
 
     def _ensure_not_running(self, record: TreeRecord) -> None:
         if record.pid and record.exit_code is None and self._pid_alive(record.pid):
-            record.status = "running"
+            record.status = "awaiting-permission" if record.pending_permission else "running"
             record.updated_at = utc_now()
             self.state.put(record)
             raise ParallelizerError(f"Cannot remove {record.name}: background agent is still running.")
 
-    def _agent_extras(self, agent: str, model: Optional[str], agent_args: List[str]) -> List[str]:
+    def _agent_extras(
+        self,
+        agent: str,
+        mode: str,
+        model: Optional[str],
+        agent_args: List[str],
+        hook_record_name: Optional[str] = None,
+        hook_state_file: Optional[Path] = None,
+    ) -> List[str]:
         extras: List[str] = []
         if model:
             if agent in {"codex", "claude"}:
                 extras.extend(["--model", model])
             else:
                 raise ParallelizerError("--model is only supported for codex and claude agents.")
+        if mode == "background" and hook_record_name and hook_state_file:
+            extras.extend(self._agent_hook_args(agent, hook_record_name, hook_state_file))
         extras.extend(agent_args)
         return extras
+
+    def _agent_hook_args(self, agent: str, record_name: str, state_file: Path) -> List[str]:
+        if agent == "codex":
+            return self._codex_hook_args(record_name, state_file)
+        if agent == "claude":
+            return self._claude_hook_args(record_name, state_file)
+        return []
+
+    def _codex_hook_args(self, record_name: str, state_file: Path) -> List[str]:
+        permission_command = self._hook_command(record_name, "permission-request", state_file)
+        clear_command = self._hook_command(record_name, "clear-permission", state_file)
+        hooks = {
+            "hooks.PermissionRequest": permission_command,
+            "hooks.PreToolUse": clear_command,
+            "hooks.PostToolUse": clear_command,
+            "hooks.Stop": clear_command,
+        }
+        args: List[str] = []
+        for key, command in hooks.items():
+            args.extend(["-c", f"{key}=[{{ command = {json.dumps(command)} }}]"])
+        return args
+
+    def _claude_hook_args(self, record_name: str, state_file: Path) -> List[str]:
+        permission_command = self._hook_command(record_name, "permission-request", state_file)
+        clear_command = self._hook_command(record_name, "clear-permission", state_file)
+        settings = {
+            "hooks": {
+                "PermissionRequest": [{"hooks": [{"type": "command", "command": permission_command}]}],
+                "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": clear_command}]}],
+                "PostToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": clear_command}]}],
+                "Stop": [{"hooks": [{"type": "command", "command": clear_command}]}],
+            }
+        }
+        return ["--settings", json.dumps(settings, sort_keys=True)]
+
+    def _hook_command(self, record_name: str, event: str, state_file: Path) -> str:
+        return shlex.join(
+            [
+                sys.executable,
+                "-m",
+                "parallelizer.agent_event",
+                record_name,
+                event,
+                "--state-file",
+                str(state_file),
+            ]
+        )
 
     def _format_agent_command(
         self,
@@ -351,9 +427,13 @@ class ParallelizerService:
         if record.worktree_path not in git_paths and not Path(record.worktree_path).exists():
             record.status = "missing"
         elif record.exit_code is not None:
+            if record.exit_code != 0 and record.pending_permission:
+                record.status = "permission-required"
+                record.updated_at = utc_now()
+                return record
             record.status = "done" if record.exit_code == 0 else "error"
         elif record.pid and self._pid_alive(record.pid):
-            record.status = "running"
+            record.status = "awaiting-permission" if record.pending_permission else "running"
         elif record.pid:
             record.status = "error"
         elif record.setup_status == "error":

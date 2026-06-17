@@ -33,12 +33,14 @@ class TreeRecord:
     exit_code: Optional[int] = None
     model: Optional[str] = None
     agent_args: Optional[List[str]] = None
+    pending_permission: Optional[Dict[str, Any]] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TreeRecord":
         data = {**data}
         data.setdefault("model", None)
         data.setdefault("agent_args", None)
+        data.setdefault("pending_permission", None)
         return cls(**data)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -61,4 +63,5 @@ class TreeRecord:
             "exit_code": self.exit_code,
             "model": self.model,
             "agent_args": self.agent_args,
+            "pending_permission": self.pending_permission,
         }

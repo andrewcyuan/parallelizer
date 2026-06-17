@@ -211,4 +211,4 @@ claude mcp add --scope user --transport stdio parallelizer -- uv run --project <
 ## Future features
 
 [ ] Make tmux helpers generic and then map to other multiplexers, such as kitty
-
+[ ] Create AgentClass which extracts all codex / claude specific helpers into individual files; and opens the door for new agents to be added.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -9,6 +10,7 @@ from typing import List, Optional
 
 import typer
 
+from .agent_event import apply_event
 from .config import write_global_default_agent
 from .errors import ParallelizerError
 from .models import TreeRecord
@@ -136,6 +138,25 @@ def setup(
 ) -> None:
     """Start an interactive agent to configure this repo for Parallelizer."""
     _run_cli(lambda service: _agent_setup_plr(service, prompt, agent, model, agent_arg or []))
+
+
+@agent_app.command("event", hidden=True)
+def agent_event(
+    name: str = typer.Argument(..., help="Worktree name."),
+    event: str = typer.Argument(..., help="Internal event name."),
+    state_file: Path = typer.Option(..., "--state-file", help="Parallelizer state file."),
+) -> None:
+    """Record an internal background-agent hook event."""
+    try:
+        payload = json.loads(sys.stdin.read() or "null")
+        if not isinstance(payload, dict):
+            payload = None
+    except json.JSONDecodeError:
+        payload = None
+    try:
+        apply_event(state_file, name, event, payload)
+    except Exception:
+        return
 
 
 def _tree(service: ParallelizerService, name: Optional[str], prompt_parts: List[str]) -> None:
