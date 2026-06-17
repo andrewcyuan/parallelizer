@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -105,6 +106,212 @@ def test_setup_missing_function_preserves_error_record(
     assert Path(record["worktree_path"]).exists()
 
 
+def test_remove_tree_runs_cleanup_and_deletes_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    marker = tmp_path / "cleanup-number.txt"
+    repo = _init_repo(
+        tmp_path,
+        setup_body=(
+            "setup_environment() { true; }\n"
+            f"cleanup_environment() {{ printf '%s' \"$1\" > \"{marker}\"; }}\n"
+        ),
+    )
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    _write_config(repo, tmp_path / "worktrees")
+    service = ParallelizerService(repo)
+    record = service.create_tree(name="alpha")
+
+    removed = service.remove_tree("alpha")
+
+    assert removed.name == "alpha"
+    assert marker.read_text() == "1"
+    assert not Path(record.worktree_path).exists()
+    assert service.state.get("alpha") is None
+
+
+def test_remove_tree_skips_missing_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = _init_repo(tmp_path, setup_body="setup_environment() { true; }\n")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    _write_config(repo, tmp_path / "worktrees")
+    service = ParallelizerService(repo)
+    record = service.create_tree(name="alpha")
+
+    service.remove_tree("alpha")
+
+    assert not Path(record.worktree_path).exists()
+    assert service.state.get("alpha") is None
+
+
+def test_remove_tree_cleanup_failure_preserves_worktree_and_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _init_repo(
+        tmp_path,
+        setup_body=(
+            "setup_environment() { true; }\n"
+            "cleanup_environment() { echo cleanup nope >&2; return 42; }\n"
+        ),
+    )
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    _write_config(repo, tmp_path / "worktrees")
+    service = ParallelizerService(repo)
+    record = service.create_tree(name="alpha")
+
+    with pytest.raises(ParallelizerError, match="cleanup nope"):
+        service.remove_tree("alpha")
+
+    assert Path(record.worktree_path).exists()
+    assert service.state.get("alpha") is not None
+
+
+def test_remove_tree_force_continues_after_cleanup_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _init_repo(
+        tmp_path,
+        setup_body=(
+            "setup_environment() { true; }\n"
+            "cleanup_environment() { echo cleanup nope >&2; return 42; }\n"
+        ),
+    )
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    _write_config(repo, tmp_path / "worktrees")
+    service = ParallelizerService(repo)
+    record = service.create_tree(name="alpha")
+
+    service.remove_tree("alpha", force_cleanup=True)
+
+    assert not Path(record.worktree_path).exists()
+    assert service.state.get("alpha") is None
+
+
+def test_remove_tree_force_does_not_bypass_dirty_worktree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _init_repo(
+        tmp_path,
+        setup_body=(
+            "setup_environment() { echo dirty > dirty.txt; }\n"
+            "cleanup_environment() { echo cleanup nope >&2; return 42; }\n"
+        ),
+    )
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    _write_config(repo, tmp_path / "worktrees")
+    service = ParallelizerService(repo)
+    record = service.create_tree(name="alpha")
+
+    with pytest.raises(ParallelizerError, match="Unable to remove git worktree"):
+        service.remove_tree("alpha", force_cleanup=True)
+
+    assert Path(record.worktree_path).exists()
+    assert service.state.get("alpha") is not None
+
+
+def test_remove_tree_refuses_running_background_agent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _init_repo(tmp_path, setup_body="setup_environment() { true; }\n")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    _write_config(repo, tmp_path / "worktrees")
+    service = ParallelizerService(repo)
+    record = service.create_tree(name="alpha")
+    record.pid = os.getpid()
+    record.mode = "background"
+    service.state.put(record)
+
+    with pytest.raises(ParallelizerError, match="still running"):
+        service.remove_tree("alpha")
+
+    assert Path(record.worktree_path).exists()
+    assert service.state.get("alpha") is not None
+
+
+def test_merge_tree_merges_branch_then_removes_worktree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    marker = tmp_path / "cleanup-number.txt"
+    repo = _init_repo(
+        tmp_path,
+        setup_body=(
+            "setup_environment() { true; }\n"
+            f"cleanup_environment() {{ printf '%s' \"$1\" > \"{marker}\"; }}\n"
+        ),
+    )
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    _write_config(repo, tmp_path / "worktrees")
+    service = ParallelizerService(repo)
+    record = service.create_tree(name="feature")
+    worktree = Path(record.worktree_path)
+    (worktree / "feature.txt").write_text("feature\n")
+    _run(["git", "add", "feature.txt"], worktree)
+    _commit(worktree, "feature")
+
+    service.merge_tree("feature")
+
+    assert (repo / "feature.txt").read_text() == "feature\n"
+    assert marker.read_text() == "1"
+    assert not worktree.exists()
+    assert service.state.get("feature") is None
+    _run(["git", "rev-parse", "--verify", "plr/feature"], repo)
+
+
+def test_merge_tree_conflict_preserves_worktree_state_and_prints_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    marker = tmp_path / "cleanup-number.txt"
+    repo = _init_repo(
+        tmp_path,
+        setup_body=(
+            "setup_environment() { true; }\n"
+            f"cleanup_environment() {{ printf '%s' \"$1\" > \"{marker}\"; }}\n"
+        ),
+    )
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    _write_config(repo, tmp_path / "worktrees")
+    service = ParallelizerService(repo)
+    record = service.create_tree(name="conflict")
+    worktree = Path(record.worktree_path)
+    (worktree / "README.md").write_text("worktree\n")
+    _run(["git", "add", "README.md"], worktree)
+    _commit(worktree, "worktree edit")
+    (repo / "README.md").write_text("main\n")
+    _run(["git", "add", "README.md"], repo)
+    _commit(repo, "main edit")
+
+    with pytest.raises(ParallelizerError, match="Unable to merge plr/conflict") as exc_info:
+        service.merge_tree("conflict")
+
+    assert "CONFLICT" in str(exc_info.value)
+    assert not marker.exists()
+    assert worktree.exists()
+    assert service.state.get("conflict") is not None
+    _run(["git", "merge", "--abort"], repo)
+
+
+def test_merge_tree_rejects_mutually_exclusive_modes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _init_repo(tmp_path, setup_body="setup_environment() { true; }\n")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    service = ParallelizerService(repo)
+
+    with pytest.raises(ParallelizerError, match="cannot be used together"):
+        service.merge_tree("feature", no_ff=True, squash=True)
+
+
+def test_cli_merge_passes_merge_flags() -> None:
+    calls = {}
+    service = SimpleNamespace(
+        merge_tree=lambda name, no_ff, squash, force_cleanup: calls.update(
+            {"name": name, "no_ff": no_ff, "squash": squash, "force_cleanup": force_cleanup}
+        )
+        or SimpleNamespace(name=name, branch="plr/alpha", worktree_path="/tmp/alpha")
+    )
+
+    cli._merge(service, "alpha", no_ff=True, squash=False, force=True)
+
+    assert calls == {"name": "alpha", "no_ff": True, "squash": False, "force_cleanup": True}
+
+
 def test_global_init_preserves_unknown_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home = tmp_path / "home"
     config_dir = home / ".parallelizer"
@@ -164,7 +371,10 @@ def test_instructions_markdown_documents_commands_and_setup() -> None:
 
     assert "plr sub [name] [prompt]" in instructions
     assert "plr agent setup_plr" in instructions
+    assert "plr merge NAME" in instructions
+    assert "plr rm NAME" in instructions
     assert "setup_environment" in instructions
+    assert "cleanup_environment" in instructions
     assert "allocated worktree number as `$1`" in instructions
 
 
@@ -251,6 +461,10 @@ def _wait_for_done(service: ParallelizerService, name: str) -> None:
             return
         time.sleep(0.1)
     raise AssertionError("background agent did not finish")
+
+
+def _commit(cwd: Path, message: str) -> None:
+    _run(["git", "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", message], cwd)
 
 
 def _run(args: list[str], cwd: Path) -> None:

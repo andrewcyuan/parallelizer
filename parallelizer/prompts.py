@@ -59,6 +59,11 @@ Commands:
 - `plr ls`: list Parallelizer worktrees and their agent status.
 - `plr cd [name]`: print a worktree path, suitable for `cd $(plr cd name)`.
 - `plr open [name]`: open a worktree in a new tmux pane.
+- `plr rm NAME`: run optional cleanup and remove a Parallelizer worktree.
+- `plr rm NAME --force`: continue removal if cleanup fails; Git still protects dirty worktrees.
+- `plr merge NAME`: merge the worktree branch into the current branch, then remove the worktree.
+- `plr merge NAME --no-ff`: force a merge commit.
+- `plr merge NAME --squash`: squash the worktree branch into the current branch.
 - `plr agent manager [prompt]`: start a manager agent in the current repo to coordinate subagents.
 - `plr agent setup_plr [guidance]`: start an agent that creates or updates `.parallelizer/functions.sh`.
 - `plr instructions`: print these project instructions as markdown.
@@ -70,4 +75,8 @@ Environment setup:
 - Use that number for per-worktree resources such as ports, database names, or temp directories.
 - `plr` runs `setup_environment` after creating the worktree and before starting the agent.
 - If the function is missing or returns a non-zero status, setup fails and the worktree is marked as an error.
+- The same file may optionally define `cleanup_environment()`.
+- `cleanup_environment` receives the same allocation number as `$1`.
+- `plr rm` and successful `plr merge` run `cleanup_environment` before removing the worktree.
+- If cleanup fails, removal stops unless `--force` was passed.
 """

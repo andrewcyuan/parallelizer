@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from .config import load_config
 from .errors import ParallelizerError
-from .git_utils import add_worktree, repo_root, worktree_porcelain
+from .git_utils import add_worktree, merge_branch, remove_worktree, repo_root, worktree_porcelain
 from .models import Project, TreeRecord
 from .state import StateStore
 
@@ -172,6 +172,28 @@ class ParallelizerService:
             "cd_command": f"cd {refreshed.worktree_path}",
         }
 
+    def remove_tree(self, name: str, force_cleanup: bool = False) -> TreeRecord:
+        record = self._record_for_action(name)
+        self._ensure_not_running(record)
+        self._run_cleanup(record, force_cleanup)
+        remove_worktree(self.project.root, Path(record.worktree_path))
+        self.state.delete(record.name)
+        return record
+
+    def merge_tree(
+        self,
+        name: str,
+        no_ff: bool = False,
+        squash: bool = False,
+        force_cleanup: bool = False,
+    ) -> TreeRecord:
+        if no_ff and squash:
+            raise ParallelizerError("--no-ff and --squash cannot be used together.")
+        record = self._record_for_action(name)
+        self._ensure_not_running(record)
+        merge_branch(self.project.root, record.branch, no_ff=no_ff, squash=squash)
+        return self.remove_tree(name, force_cleanup=force_cleanup)
+
     def _project(self, root: Path) -> Project:
         digest = hashlib.sha1(str(root).encode("utf-8")).hexdigest()[:8]
         safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", root.name).strip("-") or "repo"
@@ -243,6 +265,43 @@ class ParallelizerService:
             record.setup_error = (result.stderr or result.stdout).strip()
             raise ParallelizerError(f"Setup failed for {record.name}: {record.setup_error}")
         record.setup_status = "done"
+
+    def _run_cleanup(self, record: TreeRecord, force_cleanup: bool) -> None:
+        setup_file = Path(record.worktree_path) / ".parallelizer" / "functions.sh"
+        if not setup_file.exists():
+            return
+        script = (
+            "source .parallelizer/functions.sh; "
+            "if ! declare -F cleanup_environment >/dev/null; then "
+            "exit 0; "
+            "fi; "
+            "cleanup_environment \"$1\""
+        )
+        result = subprocess.run(
+            ["bash", "-lc", script, "parallelizer-cleanup", str(record.allocation_number)],
+            cwd=record.worktree_path,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0 and not force_cleanup:
+            message = (result.stderr or result.stdout).strip()
+            raise ParallelizerError(f"Cleanup failed for {record.name}: {message}")
+
+    def _record_for_action(self, name: str) -> TreeRecord:
+        record = self.state.get(name)
+        if not record:
+            raise ParallelizerError(f"Unknown worktree: {name}")
+        refreshed = self._refresh_status(record, self._git_worktree_paths())
+        self.state.put(refreshed)
+        return refreshed
+
+    def _ensure_not_running(self, record: TreeRecord) -> None:
+        if record.pid and record.exit_code is None and self._pid_alive(record.pid):
+            record.status = "running"
+            record.updated_at = utc_now()
+            self.state.put(record)
+            raise ParallelizerError(f"Cannot remove {record.name}: background agent is still running.")
 
     def _agent_extras(self, agent: str, model: Optional[str], agent_args: List[str]) -> List[str]:
         extras: List[str] = []

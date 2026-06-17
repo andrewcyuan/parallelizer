@@ -38,6 +38,26 @@ def add_worktree(repo: Path, path: Path, branch: str) -> None:
         raise ParallelizerError(f"Unable to create git worktree: {message}")
 
 
+def remove_worktree(repo: Path, path: Path) -> None:
+    result = git(["worktree", "remove", str(path)], repo)
+    if result.returncode != 0:
+        message = result.stderr.strip() or result.stdout.strip()
+        raise ParallelizerError(f"Unable to remove git worktree: {message}")
+
+
+def merge_branch(repo: Path, branch: str, no_ff: bool = False, squash: bool = False) -> None:
+    args = ["merge"]
+    if no_ff:
+        args.append("--no-ff")
+    if squash:
+        args.append("--squash")
+    args.append(branch)
+    result = git(args, repo)
+    if result.returncode != 0:
+        message = "\n".join(part for part in [result.stdout.strip(), result.stderr.strip()] if part)
+        raise ParallelizerError(f"Unable to merge {branch}: {message}")
+
+
 def worktree_porcelain(repo: Path) -> str:
     result = git(["worktree", "list", "--porcelain"], repo)
     if result.returncode != 0:

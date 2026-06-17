@@ -79,6 +79,26 @@ def open(name: Optional[str] = typer.Argument(None, help="Worktree name.")) -> N
     _run_cli(lambda service: _open_tmux(service, name))
 
 
+@app.command("rm")
+def remove(
+    name: str = typer.Argument(..., help="Worktree name."),
+    force: bool = typer.Option(False, "--force", help="Continue removal if cleanup_environment fails."),
+) -> None:
+    """Run optional cleanup and remove a Parallelizer worktree."""
+    _run_cli(lambda service: _remove(service, name, force))
+
+
+@app.command()
+def merge(
+    name: str = typer.Argument(..., help="Worktree name."),
+    no_ff: bool = typer.Option(False, "--no-ff", help="Create a merge commit instead of fast-forwarding."),
+    squash: bool = typer.Option(False, "--squash", help="Squash the worktree branch into the current branch."),
+    force: bool = typer.Option(False, "--force", help="Continue removal if cleanup_environment fails."),
+) -> None:
+    """Merge a worktree branch into the current branch, then remove the worktree."""
+    _run_cli(lambda service: _merge(service, name, no_ff, squash, force))
+
+
 @app.command()
 def instructions() -> None:
     """Print markdown instructions for coding agents."""
@@ -224,6 +244,16 @@ def _open_tmux(service: ParallelizerService, name: Optional[str]) -> None:
     if result.returncode != 0:
         message = result.stderr.strip() or result.stdout.strip()
         raise ParallelizerError(f"tmux split-window failed for {info['worktree_path']}: {message}")
+
+
+def _remove(service: ParallelizerService, name: str, force: bool) -> None:
+    record = service.remove_tree(name, force_cleanup=force)
+    typer.echo(f"Removed {record.name}\t{record.worktree_path}")
+
+
+def _merge(service: ParallelizerService, name: str, no_ff: bool, squash: bool, force: bool) -> None:
+    record = service.merge_tree(name, no_ff=no_ff, squash=squash, force_cleanup=force)
+    typer.echo(f"Merged {record.branch} and removed {record.name}\t{record.worktree_path}")
 
 
 def _resolve_record_name(records: List[TreeRecord], name: Optional[str]) -> str:

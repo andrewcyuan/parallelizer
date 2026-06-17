@@ -41,6 +41,11 @@ class StateStore:
         data["trees"][record.name] = record.to_dict()
         self.save(data)
 
+    def delete(self, name: str) -> None:
+        data = self.load()
+        data["trees"].pop(name, None)
+        self.save(data)
+
     def allocate_number(self) -> int:
         data = self.load()
         number = int(data.get("next_number", 1))

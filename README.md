@@ -35,7 +35,7 @@ plr init --agent claude
 ## Philosophy
 1. __Parallelizer should not recreate your current tools. It should work seamlessly with them.__
 
-And by "your current tools", i mean, of course, my current tools. So, `codex`, `claude`, git worktrees, tmux.
+And by "your current tools", i mean, of course, my current tools. So, `codex`, `claude`, git worktrees, `tmux`.
 
 2. __Parallelizer should be project agnostic as much as possible.__
 
@@ -48,7 +48,7 @@ If you do not want to configure the MCP server, print the agent-facing CLI instr
 
 ```bash
 plr instructions >> AGENTS.md
-# or
+
 plr instructions >> CLAUDE.md
 ```
 
@@ -61,7 +61,19 @@ setup_environment() {
 
 	npm run dev --port $((3000 + $1)) # first argument is the current worktree number
 }
+
+# Optional. Runs before `plr rm` removes the worktree.
+cleanup_environment() {
+	npm run stop-dev -- --port $((3000 + $1))
+}
 ```
+
+You can also have an agent do this for you!
+
+```bash
+plr agent setup_plr # Opens an agent to create/update .parallelizer/functions.sh for this repo.
+```
+
 
 ### Spawn a new subagent (or have your coding agent do it)
 ```bash
@@ -92,10 +104,31 @@ plr ls # Basically just git worktree list + agent status (running, awaiting inpu
 plr cd [name] # without the name, will give you an interactive list to pick from like fzf
 ```
 
-### Managing agents' work
-`plr` deliberately does not provide special ways to manage agents' work. We do not want to replicate or the existing coding agent. Instead, simply manage your worktrees (or tell your agent to do it). `plr` will kill agents when the tree has been merged.
+__Tmux helpers__
+```bash
+plr open [worktree_name] # Leave blank to get a selector, like fzf
+# Opens the worktree in a new tmux pane when run inside tmux.
+```
 
-What `plr` does have is some handy shortcuts.
+### Worktree lifecycle
+`plr` lifecycle management contains two parts: environment setup/teardown, and worktree management.
+
+```bash
+plr merge worker
+plr merge worker --no-ff
+plr merge worker --squash
+# Merges the worktree branch into the current branch, then runs cleanup and removes the worktree.
+
+plr rm worker
+plr rm worker --force
+# Runs cleanup_environment() if it exists, then removes the worktree.
+# --force only continues after cleanup failure; Git still protects dirty worktrees.
+```
+`plr rm` refuses to remove worktrees with running background agents.
+
+
+### Manager agent
+With many parallel agents, it can be helpful to have a manager agent to keep them all chugging along!
 
 ```bash
 plr agent manager <prompt> --interval <interval-seconds>
@@ -103,18 +136,10 @@ cat BIG_TASK_PLAN.md | plr agent manager
 # opens an agent with the instructions and tells it:
 # Discuss/confirm with the user how to break the given task down using subagents.
 # Check in on agents using plr ls every <interval> seconds using sleep calls, flag the user when there are agents that need help!
-
-plr agent setup_plr # Opens an agent to create/update .parallelizer/functions.sh for this repo.
-```
-
-__Tmux helpers__
-```bash
-plr open [worktree_name] # Leave blank to get a selector, like fzf
-# Opens the worktree in a new tmux pane when run inside tmux.
 ```
 
 
-Optional overrides for project. Mirrors the global config.
+### Optional overrides for project. Mirrors the global config.
 
 ```json
 // .parallelizer/local_config.json
@@ -155,7 +180,6 @@ claude mcp add --transport stdio parallelizer -- python <PATH_TO_REPO>/mcp_serve
 ## Future features
 
 [ ] Make tmux helpers generic and then map to other multiplexers, such as kitty
-
 
 
 
