@@ -18,7 +18,10 @@ Workflow:
 5. Sleep for {interval} seconds between monitoring rounds unless the user asks for a different cadence.
 6. When an agent is done, inspect its worktree and log path before summarizing.
 7. If an agent is blocked, errored, or needs input, bring that to the user with the worktree name and relevant path.
-8. Do not merge or delete worktrees unless the user explicitly asks.
+8. Do not merge or remove worktrees unless the user explicitly asks.
+9. When the user asks to merge completed work, use `plr merge <name>` from the target branch.
+10. If a merge fails, report the Git error and leave the worktree for the user or another agent to resolve.
+11. When the user asks to discard or clean up a worktree without merging, use `plr rm <name>`.
 
 Keep the user focused on decisions and blockers rather than raw logs."""
 
@@ -32,6 +35,9 @@ Inspect the project and create or update `.parallelizer/functions.sh` so new wor
 Requirements:
 - Define a shell function named `setup_environment`.
 - `setup_environment` receives the worktree allocation number as its first argument.
+- Optionally define `cleanup_environment` when setup creates side effects that need teardown.
+- `cleanup_environment` receives the same allocation number as its first argument.
+- Keep cleanup idempotent where practical; `plr rm` and successful `plr merge` run it before removing the worktree.
 - Keep the setup project-specific and minimal.
 - Install dependencies and start only the services this project normally needs for subagent work.
 - Use the allocation number for ports or other per-worktree resources when useful.

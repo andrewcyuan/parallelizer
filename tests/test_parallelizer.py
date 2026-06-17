@@ -360,9 +360,12 @@ def test_manager_and_setup_prompts_include_operational_instructions() -> None:
     setup = setup_plr_prompt("use port offsets")
 
     assert "plr sub <name>" in manager
+    assert "plr merge <name>" in manager
+    assert "plr rm <name>" in manager
     assert "Sleep for 7 seconds" in manager
     assert "ship feature" in manager
     assert "setup_environment" in setup
+    assert "cleanup_environment" in setup
     assert "use port offsets" in setup
 
 
