@@ -192,13 +192,20 @@ plr init
 Features excluded from the mcp:
 * The `plr agent` routes. These are meant to be used as top level. Middle management works badly enough in the human world.
 
+The server's dependencies (and the `parallelizer` package itself) live in uv's
+environment, so launch it with `uv run`. Use `--project` rather than
+`--directory`: the server operates on your current working directory, and
+`--project` loads the parallelizer environment without changing it.
+
 ```bash
 # Codex
-codex mcp add parallelizer -- python <PATH_TO_REPO>/mcp_server.py
+codex mcp add parallelizer -- uv run --project <PATH_TO_REPO> python <PATH_TO_REPO>/mcp_server.py
 
-# Claude
-claude mcp add --transport stdio parallelizer -- python <PATH_TO_REPO>/mcp_server.py
+# Claude (--scope user installs it globally for all your projects)
+claude mcp add --scope user --transport stdio parallelizer -- uv run --project <PATH_TO_REPO> python <PATH_TO_REPO>/mcp_server.py
 ```
+
+`<PATH_TO_REPO>` must be an absolute path.
 
 
 ## Future features
