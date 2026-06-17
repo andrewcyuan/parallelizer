@@ -65,7 +65,7 @@ Commands:
 - `plr sub ... --background`: start the agent in the background and write its log path.
 - `plr sub ... --model MODEL --agent-arg ARG`: pass a model or extra raw argument to `codex`/`claude`.
 - `plr ls`: list Parallelizer worktrees and their agent status.
-- `plr cd [name]`: print a worktree path, suitable for `cd $(plr cd name)`.
+- `plr cd [name]`: start a shell in a worktree.
 - `plr open [name]`: open a worktree in a new tmux pane.
 - `plr rm NAME`: run optional cleanup and remove a Parallelizer worktree.
 - `plr rm NAME --force`: continue removal if cleanup fails; Git still protects dirty worktrees.

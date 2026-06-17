@@ -69,7 +69,7 @@ def list_worktrees() -> None:
 
 @app.command("cd")
 def cd_worktree(name: Optional[str] = typer.Argument(None, help="Worktree name.")) -> None:
-    """Print a worktree path for shell cd command substitution."""
+    """Start a shell in a worktree."""
     _run_cli(lambda service: _cd(service, name))
 
 
@@ -222,7 +222,9 @@ def _cd(service: ParallelizerService, name: Optional[str]) -> None:
         raise ParallelizerError("No Parallelizer worktrees found.")
     selected = _resolve_record_name(records, name)
     info = service.worktree_info(selected)
-    typer.echo(info["worktree_path"])
+    os.chdir(info["worktree_path"])
+    shell = os.environ.get("SHELL", "/bin/sh")
+    os.execvp(shell, [Path(shell).name])
 
 
 def _open_tmux(service: ParallelizerService, name: Optional[str]) -> None:
@@ -276,7 +278,7 @@ def _select_record_fzf(records: List[TreeRecord]) -> Optional[str]:
         ["fzf", "--with-nth=1,2,3"],
         input=rows,
         text=True,
-        capture_output=True,
+        stdout=subprocess.PIPE,
         check=False,
     )
     if result.returncode != 0 or not result.stdout.strip():

@@ -473,6 +473,34 @@ def test_resolve_record_uses_fzf(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cli._resolve_record_name([record], None) == "alpha"
 
 
+def test_cd_consumes_fzf_selection_and_starts_shell_in_worktree(monkeypatch: pytest.MonkeyPatch) -> None:
+    records = [
+        SimpleNamespace(name="alpha", status="done", worktree_path="/tmp/alpha"),
+        SimpleNamespace(name="beta", status="done", worktree_path="/tmp/beta"),
+    ]
+    cd_calls = []
+    exec_calls = []
+    service = SimpleNamespace(
+        list_records=lambda: records,
+        worktree_info=lambda name: {"worktree_path": f"/tmp/{name}"},
+    )
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setenv("SHELL", "/bin/zsh")
+    monkeypatch.setattr(cli.shutil, "which", lambda name: "/bin/fzf" if name == "fzf" else None)
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="beta\tdone\t/tmp/beta\n"),
+    )
+    monkeypatch.setattr(cli.os, "chdir", lambda path: cd_calls.append(path))
+    monkeypatch.setattr(cli.os, "execvp", lambda file, args: exec_calls.append((file, args)))
+
+    cli._cd(service, None)
+
+    assert cd_calls == ["/tmp/beta"]
+    assert exec_calls == [("/bin/zsh", ["zsh"])]
+
+
 def test_open_tmux_runs_split_window(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
     service = SimpleNamespace(

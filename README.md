@@ -107,7 +107,7 @@ plr sub worker "Complete task xyz." --model gpt-5 --agent-arg=--search
 ### Monitor agents
 ```bash
 plr ls # Basically just git worktree list + agent status (running, awaiting input, error, done)
-plr cd [name] # without the name, will give you an interactive list to pick from like fzf
+plr cd [name] # starts a shell in the worktree; without the name, opens an interactive selector
 ```
 
 __Tmux helpers__
@@ -186,7 +186,6 @@ claude mcp add --transport stdio parallelizer -- python <PATH_TO_REPO>/mcp_serve
 ## Future features
 
 [ ] Make tmux helpers generic and then map to other multiplexers, such as kitty
-
 
 
 
