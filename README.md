@@ -136,7 +136,14 @@ plr merge worker --squash
 
 plr rm worker
 plr rm worker --force
-# Runs cleanup_environment() if it exists, then removes the worktree.
+plr rm
+# Leave the name blank to get a selector, like fzf.
+
+plr rm '*'
+plr remove '*'
+# Removes all Parallelizer worktrees.
+
+# Removal runs cleanup_environment() if it exists, then removes the worktree.
 # --force only continues after cleanup failure; Git still protects dirty worktrees.
 ```
 `plr rm` refuses to remove worktrees with running background agents.

@@ -69,8 +69,9 @@ Commands:
 - `plr cd [name]`: start a shell in a worktree.
 - `plr wt NAME -- CMD...`: run a command in a worktree.
 - `plr open [name]`: open a worktree in a new tmux pane.
-- `plr rm NAME`: run optional cleanup and remove a Parallelizer worktree.
+- `plr rm [NAME]`: run optional cleanup and remove a Parallelizer worktree; omit NAME to choose from a selector.
 - `plr rm NAME --force`: continue removal if cleanup fails; Git still protects dirty worktrees.
+- `plr rm '*'` or `plr remove '*'`: remove all Parallelizer worktrees.
 - `plr merge NAME`: merge the worktree branch into the current branch, then remove the worktree.
 - `plr merge NAME --no-ff`: force a merge commit.
 - `plr merge NAME --squash`: squash the worktree branch into the current branch.

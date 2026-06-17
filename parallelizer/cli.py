@@ -89,12 +89,13 @@ def open(name: Optional[str] = typer.Argument(None, help="Worktree name.")) -> N
 
 
 @app.command("rm")
+@app.command("remove")
 def remove(
-    name: str = typer.Argument(..., help="Worktree name."),
+    names: Optional[List[str]] = typer.Argument(None, help="Worktree name, or '*' for all worktrees."),
     force: bool = typer.Option(False, "--force", help="Continue removal if cleanup_environment fails."),
 ) -> None:
     """Run optional cleanup and remove a Parallelizer worktree."""
-    _run_cli(lambda service: _remove(service, name, force))
+    _run_cli(lambda service: _remove(service, names or [], force))
 
 
 @app.command()
@@ -265,8 +266,29 @@ def _open_tmux(service: ParallelizerService, name: Optional[str]) -> None:
         raise ParallelizerError(f"tmux split-window failed for {info['worktree_path']}: {message}")
 
 
-def _remove(service: ParallelizerService, name: str, force: bool) -> None:
-    record = service.remove_tree(name, force_cleanup=force)
+def _remove(service: ParallelizerService, names: List[str], force: bool) -> None:
+    if not names:
+        records = service.list_records()
+        if not records:
+            raise ParallelizerError("No Parallelizer worktrees found.")
+        selected = _resolve_record_name(records, None)
+        record = service.remove_tree(selected, force_cleanup=force)
+        typer.echo(f"Removed {record.name}\t{record.worktree_path}")
+        return
+    if names == ["*"]:
+        records = service.list_records()
+        if not records:
+            typer.echo("No Parallelizer worktrees found.")
+            return
+        for record in records:
+            removed = service.remove_tree(record.name, force_cleanup=force)
+            typer.echo(f"Removed {removed.name}\t{removed.worktree_path}")
+        return
+    if "*" in names:
+        raise ParallelizerError("'*' must be the only argument when removing all worktrees.")
+    if len(names) > 1:
+        raise ParallelizerError("Only one worktree name is accepted. Use `plr rm '*'` to remove all worktrees.")
+    record = service.remove_tree(names[0], force_cleanup=force)
     typer.echo(f"Removed {record.name}\t{record.worktree_path}")
 
 

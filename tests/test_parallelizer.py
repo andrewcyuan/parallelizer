@@ -347,6 +347,69 @@ def test_cli_merge_passes_merge_flags() -> None:
     assert calls == {"name": "alpha", "no_ff": True, "squash": False, "force_cleanup": True}
 
 
+def test_cli_remove_all_removes_every_record() -> None:
+    calls = []
+    records = [
+        SimpleNamespace(name="alpha", worktree_path="/tmp/alpha"),
+        SimpleNamespace(name="beta", worktree_path="/tmp/beta"),
+    ]
+    service = SimpleNamespace(
+        list_records=lambda: records,
+        remove_tree=lambda name, force_cleanup: calls.append((name, force_cleanup))
+        or SimpleNamespace(name=name, worktree_path=f"/tmp/{name}"),
+    )
+
+    cli._remove(service, ["*"], force=True)
+
+    assert calls == [("alpha", True), ("beta", True)]
+
+
+def test_cli_remove_without_name_uses_selector(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+    records = [
+        SimpleNamespace(name="alpha", status="done", worktree_path="/tmp/alpha"),
+        SimpleNamespace(name="beta", status="done", worktree_path="/tmp/beta"),
+    ]
+    service = SimpleNamespace(
+        list_records=lambda: records,
+        remove_tree=lambda name, force_cleanup: calls.append((name, force_cleanup))
+        or SimpleNamespace(name=name, worktree_path=f"/tmp/{name}"),
+    )
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli.shutil, "which", lambda name: None)
+    monkeypatch.setattr(cli.typer, "prompt", lambda *args, **kwargs: 2)
+
+    cli._remove(service, [], force=False)
+
+    assert calls == [("beta", False)]
+
+
+def test_remove_alias_removes_all_records(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+    records = [
+        SimpleNamespace(name="alpha", worktree_path="/tmp/alpha"),
+        SimpleNamespace(name="beta", worktree_path="/tmp/beta"),
+    ]
+    service = SimpleNamespace(
+        list_records=lambda: records,
+        remove_tree=lambda name, force_cleanup: calls.append((name, force_cleanup))
+        or SimpleNamespace(name=name, worktree_path=f"/tmp/{name}"),
+    )
+    monkeypatch.setattr(cli, "ParallelizerService", lambda path: service)
+
+    result = runner.invoke(cli.app, ["remove", "*", "--force"])
+
+    assert result.exit_code == 0
+    assert calls == [("alpha", True), ("beta", True)]
+
+
+def test_cli_remove_rejects_multiple_names() -> None:
+    service = SimpleNamespace()
+
+    with pytest.raises(ParallelizerError, match="Only one worktree name"):
+        cli._remove(service, ["alpha", "beta"], force=False)
+
+
 def test_wt_runs_command_in_resolved_worktree(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
     service = SimpleNamespace(worktree_info=lambda name: {"worktree_path": f"/tmp/{name}"})
@@ -488,7 +551,9 @@ def test_instructions_markdown_documents_commands_and_setup() -> None:
     assert "plr agent setup [instructions]" in instructions
     assert "plr agent setup_plr" not in instructions
     assert "plr merge NAME" in instructions
-    assert "plr rm NAME" in instructions
+    assert "plr rm [NAME]" in instructions
+    assert "plr rm '*'" in instructions
+    assert "plr remove '*'" in instructions
     assert "setup_environment" in instructions
     assert "cleanup_environment" in instructions
     assert "allocated worktree number as `$1`" in instructions
