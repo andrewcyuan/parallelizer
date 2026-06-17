@@ -13,11 +13,11 @@ Task:
 Workflow:
 1. Discuss and confirm a decomposition with the user before spawning subagents.
 2. Spawn subagents with `plr sub <name> "<prompt>" --background`.
-   If your tool environment supports sandbox escalation, request/use escalation for `plr sub`, `plr tree`, `plr merge`, and `plr rm` so worktree creation, setup, and cleanup do not fail on sandbox restrictions.
+   If your tool environment supports sandbox escalation, request/use escalation for `plr sub`, `plr tree`, `plr wt`, `plr merge`, and `plr rm` so worktree creation, setup, inspection, and cleanup do not fail on sandbox restrictions.
 3. Use clear, specific worktree names.
 4. Check progress with `plr ls`.
 5. Use shell sleep commands to wait between monitoring rounds, for example `sleep {interval}`, unless the user asks for a different cadence.
-6. When an agent is done, inspect its worktree and log path before summarizing.
+6. When an agent is done, inspect its worktree with `plr wt <name> -- git status --short` and `plr wt <name> -- git diff`, and check its log path before summarizing.
 7. If an agent is blocked, errored, or needs input, bring that to the user with the worktree name and relevant path.
 8. Do not merge or remove worktrees unless the user explicitly asks.
 9. When the user asks to merge completed work, use `plr merge <name>` from the target branch.
@@ -67,6 +67,7 @@ Commands:
 - `plr sub ... --model MODEL --agent-arg ARG`: pass a model or extra raw argument to `codex`/`claude`.
 - `plr ls`: list Parallelizer worktrees and their agent status.
 - `plr cd [name]`: start a shell in a worktree.
+- `plr wt NAME -- CMD...`: run a command in a worktree.
 - `plr open [name]`: open a worktree in a new tmux pane.
 - `plr rm NAME`: run optional cleanup and remove a Parallelizer worktree.
 - `plr rm NAME --force`: continue removal if cleanup fails; Git still protects dirty worktrees.
@@ -79,9 +80,10 @@ Commands:
 
 Subagent coordination:
 - When running as a manager, spawn workers with `plr sub <name> "<prompt>" --background`.
-- If your tool environment supports sandbox escalation, request/use escalation for worktree lifecycle commands such as `plr sub`, `plr tree`, `plr merge`, and `plr rm`; these commands create external worktrees and run setup/cleanup.
+- If your tool environment supports sandbox escalation, request/use escalation for worktree lifecycle and inspection commands such as `plr sub`, `plr tree`, `plr wt`, `plr merge`, and `plr rm`; these commands create external worktrees and run setup/cleanup.
 - Monitor workers periodically with `plr ls`, then use shell sleep commands such as `sleep 10` between monitoring rounds.
-- Inspect completed workers by checking their worktree and log path before summarizing results.
+- Inspect completed workers with `plr wt <name> -- git status --short`, `plr wt <name> -- git diff`, and any relevant tests inside the worker worktree before summarizing results.
+- Use `plr wt <name> -- CMD...` when you need to inspect files, run Git commands, or run tests inside a worker worktree without changing directories. The `--` separates `plr` arguments from the command being run.
 
 Environment setup:
 - If `.parallelizer/functions.sh` exists, `plr` sources it inside each new worktree.

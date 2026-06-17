@@ -73,6 +73,15 @@ def cd_worktree(name: Optional[str] = typer.Argument(None, help="Worktree name."
     _run_cli(lambda service: _cd(service, name))
 
 
+@app.command("wt", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def run_in_worktree(
+    name: str = typer.Argument(..., help="Worktree name."),
+    command: Optional[List[str]] = typer.Argument(None, help="Command to run after --."),
+) -> None:
+    """Run a command in a worktree."""
+    _run_cli(lambda service: _wt(service, name, command or []))
+
+
 @app.command()
 def open(name: Optional[str] = typer.Argument(None, help="Worktree name.")) -> None:
     """Open a worktree in a new tmux pane."""
@@ -225,6 +234,14 @@ def _cd(service: ParallelizerService, name: Optional[str]) -> None:
     os.chdir(info["worktree_path"])
     shell = os.environ.get("SHELL", "/bin/sh")
     os.execvp(shell, [Path(shell).name])
+
+
+def _wt(service: ParallelizerService, name: str, command: List[str]) -> None:
+    if not command:
+        raise ParallelizerError("A command is required after --")
+    info = service.worktree_info(name)
+    result = subprocess.run(command, cwd=info["worktree_path"], check=False)
+    raise typer.Exit(result.returncode)
 
 
 def _open_tmux(service: ParallelizerService, name: Optional[str]) -> None:

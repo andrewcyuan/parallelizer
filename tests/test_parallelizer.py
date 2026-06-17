@@ -347,6 +347,75 @@ def test_cli_merge_passes_merge_flags() -> None:
     assert calls == {"name": "alpha", "no_ff": True, "squash": False, "force_cleanup": True}
 
 
+def test_wt_runs_command_in_resolved_worktree(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+    service = SimpleNamespace(worktree_info=lambda name: {"worktree_path": f"/tmp/{name}"})
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda command, **kwargs: calls.append((command, kwargs)) or SimpleNamespace(returncode=0),
+    )
+
+    with pytest.raises(cli.typer.Exit) as exc:
+        cli._wt(service, "alpha", ["git", "status", "--short"])
+
+    assert exc.value.exit_code == 0
+    assert calls == [(["git", "status", "--short"], {"cwd": "/tmp/alpha", "check": False})]
+
+
+def test_wt_cli_passes_flags_after_separator(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+    service = SimpleNamespace(worktree_info=lambda name: {"worktree_path": "/tmp/alpha"})
+    monkeypatch.setattr(cli, "ParallelizerService", lambda path: service)
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda command, **kwargs: calls.append((command, kwargs)) or SimpleNamespace(returncode=0),
+    )
+
+    result = runner.invoke(cli.app, ["wt", "alpha", "--", "git", "commit", "-m", "msg", "--short"])
+
+    assert result.exit_code == 0
+    assert calls == [(["git", "commit", "-m", "msg", "--short"], {"cwd": "/tmp/alpha", "check": False})]
+
+
+def test_wt_cli_propagates_child_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = SimpleNamespace(worktree_info=lambda name: {"worktree_path": "/tmp/alpha"})
+    monkeypatch.setattr(cli, "ParallelizerService", lambda path: service)
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda command, **kwargs: SimpleNamespace(returncode=17),
+    )
+
+    result = runner.invoke(cli.app, ["wt", "alpha", "--", "git", "diff", "--check"])
+
+    assert result.exit_code == 17
+
+
+def test_wt_cli_requires_command_after_separator(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = SimpleNamespace(worktree_info=lambda name: {"worktree_path": "/tmp/alpha"})
+    monkeypatch.setattr(cli, "ParallelizerService", lambda path: service)
+
+    result = runner.invoke(cli.app, ["wt", "alpha", "--"])
+
+    assert result.exit_code == 1
+    assert "A command is required after --" in result.stderr
+
+
+def test_wt_cli_surfaces_unknown_worktree(monkeypatch: pytest.MonkeyPatch) -> None:
+    def worktree_info(name: str) -> dict:
+        raise ParallelizerError(f"Unknown worktree: {name}")
+
+    service = SimpleNamespace(worktree_info=worktree_info)
+    monkeypatch.setattr(cli, "ParallelizerService", lambda path: service)
+
+    result = runner.invoke(cli.app, ["wt", "missing", "--", "git", "status"])
+
+    assert result.exit_code == 1
+    assert "Unknown worktree: missing" in result.stderr
+
+
 def test_global_init_preserves_unknown_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home = tmp_path / "home"
     config_dir = home / ".parallelizer"
@@ -395,6 +464,8 @@ def test_manager_and_setup_prompts_include_operational_instructions() -> None:
     setup = setup_plr_prompt("use port offsets")
 
     assert "plr sub <name>" in manager
+    assert "plr wt <name> -- git status --short" in manager
+    assert "plr wt <name> -- git diff" in manager
     assert "plr merge <name>" in manager
     assert "plr rm <name>" in manager
     assert "sleep 7" in manager
@@ -411,6 +482,9 @@ def test_instructions_markdown_documents_commands_and_setup() -> None:
     instructions = plr_instructions_markdown()
 
     assert "plr sub [name] [prompt]" in instructions
+    assert "plr wt NAME -- CMD..." in instructions
+    assert "plr wt <name> -- git status --short" in instructions
+    assert "plr wt <name> -- git diff" in instructions
     assert "plr agent setup [instructions]" in instructions
     assert "plr agent setup_plr" not in instructions
     assert "plr merge NAME" in instructions
