@@ -142,6 +142,7 @@ cat BIG_TASK_PLAN.md | plr agent manager
 # opens an agent with the instructions and tells it:
 # Discuss/confirm with the user how to break the given task down using subagents.
 # Check in on agents using plr ls every <interval> seconds using sleep calls, flag the user when there are agents that need help!
+# If your tool environment supports sandbox escalation, use it for plr sub/tree/merge/rm so worktree setup and cleanup do not hit sandbox restrictions.
 ```
 
 
@@ -186,6 +187,5 @@ claude mcp add --transport stdio parallelizer -- python <PATH_TO_REPO>/mcp_serve
 ## Future features
 
 [ ] Make tmux helpers generic and then map to other multiplexers, such as kitty
-
 
 

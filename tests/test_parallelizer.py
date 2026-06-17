@@ -397,7 +397,8 @@ def test_manager_and_setup_prompts_include_operational_instructions() -> None:
     assert "plr sub <name>" in manager
     assert "plr merge <name>" in manager
     assert "plr rm <name>" in manager
-    assert "Sleep for 7 seconds" in manager
+    assert "sleep 7" in manager
+    assert "sandbox escalation" in manager
     assert "ship feature" in manager
     assert "setup_environment" in setup
     assert "cleanup_environment" in setup
@@ -419,6 +420,8 @@ def test_instructions_markdown_documents_commands_and_setup() -> None:
     assert "allocated worktree number as `$1`" in instructions
     assert "PLR_SOURCE_REPO" in instructions
     assert "PLR_WORKTREE" in instructions
+    assert "sleep 10" in instructions
+    assert "sandbox escalation" in instructions
 
 
 def test_agent_setup_command_accepts_optional_instruction_string(monkeypatch: pytest.MonkeyPatch) -> None:

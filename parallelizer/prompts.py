@@ -13,9 +13,10 @@ Task:
 Workflow:
 1. Discuss and confirm a decomposition with the user before spawning subagents.
 2. Spawn subagents with `plr sub <name> "<prompt>" --background`.
+   If your tool environment supports sandbox escalation, request/use escalation for `plr sub`, `plr tree`, `plr merge`, and `plr rm` so worktree creation, setup, and cleanup do not fail on sandbox restrictions.
 3. Use clear, specific worktree names.
 4. Check progress with `plr ls`.
-5. Sleep for {interval} seconds between monitoring rounds unless the user asks for a different cadence.
+5. Use shell sleep commands to wait between monitoring rounds, for example `sleep {interval}`, unless the user asks for a different cadence.
 6. When an agent is done, inspect its worktree and log path before summarizing.
 7. If an agent is blocked, errored, or needs input, bring that to the user with the worktree name and relevant path.
 8. Do not merge or remove worktrees unless the user explicitly asks.
@@ -75,6 +76,12 @@ Commands:
 - `plr agent manager [prompt]`: start a manager agent in the current repo to coordinate subagents.
 - `plr agent setup [instructions]`: start an agent that creates or updates `.parallelizer/functions.sh`.
 - `plr instructions`: print these project instructions as markdown.
+
+Subagent coordination:
+- When running as a manager, spawn workers with `plr sub <name> "<prompt>" --background`.
+- If your tool environment supports sandbox escalation, request/use escalation for worktree lifecycle commands such as `plr sub`, `plr tree`, `plr merge`, and `plr rm`; these commands create external worktrees and run setup/cleanup.
+- Monitor workers periodically with `plr ls`, then use shell sleep commands such as `sleep 10` between monitoring rounds.
+- Inspect completed workers by checking their worktree and log path before summarizing results.
 
 Environment setup:
 - If `.parallelizer/functions.sh` exists, `plr` sources it inside each new worktree.
