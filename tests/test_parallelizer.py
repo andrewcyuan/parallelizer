@@ -8,12 +8,15 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from typer.testing import CliRunner
 
 from parallelizer import cli
 from parallelizer.config import load_config, write_global_default_agent
 from parallelizer.errors import ParallelizerError
-from parallelizer.prompts import manager_prompt, setup_plr_prompt
+from parallelizer.prompts import manager_prompt, plr_instructions_markdown, setup_plr_prompt
 from parallelizer.service import ParallelizerService
+
+runner = CliRunner()
 
 
 def test_config_merges_global_and_local(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -154,6 +157,23 @@ def test_manager_and_setup_prompts_include_operational_instructions() -> None:
     assert "ship feature" in manager
     assert "setup_environment" in setup
     assert "use port offsets" in setup
+
+
+def test_instructions_markdown_documents_commands_and_setup() -> None:
+    instructions = plr_instructions_markdown()
+
+    assert "plr sub [name] [prompt]" in instructions
+    assert "plr agent setup_plr" in instructions
+    assert "setup_environment" in instructions
+    assert "allocated worktree number as `$1`" in instructions
+
+
+def test_instructions_command_prints_markdown() -> None:
+    result = runner.invoke(cli.app, ["instructions"])
+
+    assert result.exit_code == 0
+    assert "## Parallelizer (`plr`)" in result.stdout
+    assert "plr instructions" in result.stdout
 
 
 def test_resolve_record_requires_name_when_not_interactive(monkeypatch: pytest.MonkeyPatch) -> None:

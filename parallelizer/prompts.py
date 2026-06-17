@@ -42,3 +42,32 @@ Additional user guidance:
 {extra}
 
 After editing, explain exactly what setup does and any assumptions the user should verify."""
+
+
+def plr_instructions_markdown() -> str:
+    return """## Parallelizer (`plr`)
+
+Use `plr` to create isolated git worktrees for coding agents. Prompts can be passed as command arguments or piped on stdin.
+
+Commands:
+- `plr init`: initialize the global default coding agent (`codex` or `claude`).
+- `plr tree [name] [prompt]`: create a git worktree without starting an agent.
+- `plr sub [name] [prompt]`: create a worktree, run setup, then start a coding agent.
+- `plr subagent [name] [prompt]`: same as `plr sub`.
+- `plr sub ... --background`: start the agent in the background and write its log path.
+- `plr sub ... --model MODEL --agent-arg ARG`: pass a model or extra raw argument to `codex`/`claude`.
+- `plr ls`: list Parallelizer worktrees and their agent status.
+- `plr cd [name]`: print a worktree path, suitable for `cd $(plr cd name)`.
+- `plr open [name]`: open a worktree in a new tmux pane.
+- `plr agent manager [prompt]`: start a manager agent in the current repo to coordinate subagents.
+- `plr agent setup_plr [guidance]`: start an agent that creates or updates `.parallelizer/functions.sh`.
+- `plr instructions`: print these project instructions as markdown.
+
+Environment setup:
+- If `.parallelizer/functions.sh` exists, `plr` sources it inside each new worktree.
+- That file must define `setup_environment()`.
+- `setup_environment` receives the allocated worktree number as `$1`.
+- Use that number for per-worktree resources such as ports, database names, or temp directories.
+- `plr` runs `setup_environment` after creating the worktree and before starting the agent.
+- If the function is missing or returns a non-zero status, setup fails and the worktree is marked as an error.
+"""

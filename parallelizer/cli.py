@@ -12,7 +12,7 @@ import typer
 from .config import write_global_default_agent
 from .errors import ParallelizerError
 from .models import TreeRecord
-from .prompts import manager_prompt, setup_plr_prompt
+from .prompts import manager_prompt, plr_instructions_markdown, setup_plr_prompt
 from .service import ParallelizerService
 
 app = typer.Typer(no_args_is_help=True, help="Spawn coding subagents in git worktrees.")
@@ -77,6 +77,12 @@ def cd_worktree(name: Optional[str] = typer.Argument(None, help="Worktree name."
 def open(name: Optional[str] = typer.Argument(None, help="Worktree name.")) -> None:
     """Open a worktree in a new tmux pane."""
     _run_cli(lambda service: _open_tmux(service, name))
+
+
+@app.command()
+def instructions() -> None:
+    """Print markdown instructions for coding agents."""
+    typer.echo(plr_instructions_markdown().rstrip())
 
 
 @agent_app.command()

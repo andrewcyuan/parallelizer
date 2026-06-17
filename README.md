@@ -43,6 +43,15 @@ One of the great things about git and coding agents is that they work with every
 
 ## Usage
 
+### Add CLI instructions to a project
+If you do not want to configure the MCP server, print the agent-facing CLI instructions and append them to your project instructions:
+
+```bash
+plr instructions >> AGENTS.md
+# or
+plr instructions >> CLAUDE.md
+```
+
 ### Create a setup script for the given repo. We'll use a node project as an example.
 ```bash
 # .parallelizer/functions.sh
@@ -146,7 +155,6 @@ claude mcp add --transport stdio parallelizer -- python <PATH_TO_REPO>/mcp_serve
 ## Future features
 
 [ ] Make tmux helpers generic and then map to other multiplexers, such as kitty
-
 
 
 
