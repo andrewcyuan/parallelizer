@@ -117,15 +117,15 @@ def manager(
     _run_cli(lambda service: _agent_manager(service, prompt_parts or [], interval, agent, model, agent_arg or []))
 
 
-@agent_app.command("setup_plr")
-def setup_plr(
-    prompt_parts: Optional[List[str]] = typer.Argument(None, help="Additional setup guidance."),
+@agent_app.command("setup")
+def setup(
+    prompt: Optional[str] = typer.Argument(None, help="Repo-specific setup instructions."),
     agent: Optional[str] = typer.Option(None, "--agent", "-a", help="Agent name from config."),
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Model to pass to codex/claude."),
     agent_arg: Optional[List[str]] = typer.Option(None, "--agent-arg", help="Extra raw agent argument."),
 ) -> None:
     """Start an interactive agent to configure this repo for Parallelizer."""
-    _run_cli(lambda service: _agent_setup_plr(service, prompt_parts or [], agent, model, agent_arg or []))
+    _run_cli(lambda service: _agent_setup_plr(service, prompt, agent, model, agent_arg or []))
 
 
 def _tree(service: ParallelizerService, name: Optional[str], prompt_parts: List[str]) -> None:
@@ -173,13 +173,13 @@ def _agent_manager(
 
 def _agent_setup_plr(
     service: ParallelizerService,
-    prompt_parts: List[str],
+    prompt: Optional[str],
     agent: Optional[str],
     model: Optional[str],
     agent_args: List[str],
 ) -> None:
-    prompt = setup_plr_prompt(_prompt_from_args(prompt_parts))
-    _exec_current_repo_agent(service, prompt, agent, model, agent_args)
+    setup_prompt = setup_plr_prompt(_prompt_from_optional_arg(prompt))
+    _exec_current_repo_agent(service, setup_prompt, agent, model, agent_args)
 
 
 def _exec_current_repo_agent(
@@ -296,6 +296,14 @@ def _select_record_numbered(records: List[TreeRecord]) -> str:
 def _prompt_from_args(parts: List[str]) -> str:
     if parts:
         return " ".join(parts)
+    if not sys.stdin.isatty():
+        return sys.stdin.read().strip()
+    return ""
+
+
+def _prompt_from_optional_arg(prompt: Optional[str]) -> str:
+    if prompt:
+        return prompt
     if not sys.stdin.isatty():
         return sys.stdin.read().strip()
     return ""

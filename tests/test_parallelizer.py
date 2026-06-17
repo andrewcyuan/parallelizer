@@ -373,12 +373,36 @@ def test_instructions_markdown_documents_commands_and_setup() -> None:
     instructions = plr_instructions_markdown()
 
     assert "plr sub [name] [prompt]" in instructions
-    assert "plr agent setup_plr" in instructions
+    assert "plr agent setup [instructions]" in instructions
+    assert "plr agent setup_plr" not in instructions
     assert "plr merge NAME" in instructions
     assert "plr rm NAME" in instructions
     assert "setup_environment" in instructions
     assert "cleanup_environment" in instructions
     assert "allocated worktree number as `$1`" in instructions
+
+
+def test_agent_setup_command_accepts_optional_instruction_string(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+    service = SimpleNamespace()
+    monkeypatch.setattr(cli, "ParallelizerService", lambda path: service)
+    monkeypatch.setattr(
+        cli,
+        "_exec_current_repo_agent",
+        lambda *args: calls.append(args),
+    )
+
+    result = runner.invoke(cli.app, ["agent", "setup", "use port offsets"])
+
+    assert result.exit_code == 0
+    assert len(calls) == 1
+    called_service, prompt, agent, model, agent_args = calls[0]
+    assert called_service is service
+    assert "use port offsets" in prompt
+    assert "setup_environment" in prompt
+    assert agent is None
+    assert model is None
+    assert agent_args == []
 
 
 def test_instructions_command_prints_markdown() -> None:

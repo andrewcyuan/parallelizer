@@ -71,7 +71,7 @@ Commands:
 - `plr merge NAME --no-ff`: force a merge commit.
 - `plr merge NAME --squash`: squash the worktree branch into the current branch.
 - `plr agent manager [prompt]`: start a manager agent in the current repo to coordinate subagents.
-- `plr agent setup_plr [guidance]`: start an agent that creates or updates `.parallelizer/functions.sh`.
+- `plr agent setup [instructions]`: start an agent that creates or updates `.parallelizer/functions.sh`.
 - `plr instructions`: print these project instructions as markdown.
 
 Environment setup:

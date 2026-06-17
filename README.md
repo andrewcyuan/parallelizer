@@ -71,7 +71,7 @@ cleanup_environment() {
 You can also have an agent do this for you!
 
 ```bash
-plr agent setup_plr # Opens an agent to create/update .parallelizer/functions.sh for this repo.
+plr agent setup "use port offsets" # Opens an agent to create/update .parallelizer/functions.sh for this repo.
 ```
 
 
