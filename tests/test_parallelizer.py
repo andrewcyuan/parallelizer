@@ -600,6 +600,141 @@ def test_wt_cli_surfaces_unknown_worktree(monkeypatch: pytest.MonkeyPatch) -> No
     assert "Unknown worktree: missing" in result.stderr
 
 
+def test_run_in_worktree_captures_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = _init_repo(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    _write_config(repo, tmp_path / "worktrees")
+    service = ParallelizerService(repo)
+    record = service.create_tree(name="alpha")
+    # sentinel only exists in the worktree, proving the command ran there.
+    (Path(record.worktree_path) / "sentinel.txt").write_text("hello\n")
+
+    result = service.run_in_worktree("alpha", ["cat", "sentinel.txt"])
+
+    assert result["exit_code"] == 0
+    assert result["stdout"] == "hello\n"
+    assert result["name"] == "alpha"
+    assert result["worktree_path"] == record.worktree_path
+    assert result["command"] == ["cat", "sentinel.txt"]
+
+
+def test_run_in_worktree_reports_nonzero_exit_without_raising(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _init_repo(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    _write_config(repo, tmp_path / "worktrees")
+    service = ParallelizerService(repo)
+    service.create_tree(name="alpha")
+
+    result = service.run_in_worktree("alpha", ["sh", "-c", "echo oops >&2; exit 3"])
+
+    assert result["exit_code"] == 3
+    assert result["stderr"].strip() == "oops"
+
+
+def test_run_in_worktree_requires_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = _init_repo(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    _write_config(repo, tmp_path / "worktrees")
+    service = ParallelizerService(repo)
+    service.create_tree(name="alpha")
+
+    with pytest.raises(ParallelizerError, match="command is required"):
+        service.run_in_worktree("alpha", [])
+
+
+def test_run_in_worktree_rejects_unknown_worktree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _init_repo(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    _write_config(repo, tmp_path / "worktrees")
+    service = ParallelizerService(repo)
+
+    with pytest.raises(ParallelizerError, match="Unknown worktree"):
+        service.run_in_worktree("missing", ["git", "status"])
+
+
+def test_parallelizer_repo_root_accepts_repo_and_subdir(tmp_path: Path) -> None:
+    repo = _init_parallelizer_repo(tmp_path)
+    subdir = repo / "scripts"
+    subdir.mkdir()
+
+    assert cli._parallelizer_repo_root(repo) == repo.resolve()
+    assert cli._parallelizer_repo_root(subdir) == repo.resolve()
+
+
+def test_parallelizer_repo_root_rejects_other_git_repo(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+
+    with pytest.raises(ParallelizerError, match="parallelizer repository"):
+        cli._parallelizer_repo_root(repo)
+
+
+def test_parallelizer_repo_root_rejects_non_git_dir(tmp_path: Path) -> None:
+    plain = tmp_path / "plain"
+    plain.mkdir()
+
+    with pytest.raises(ParallelizerError, match="git repository"):
+        cli._parallelizer_repo_root(plain)
+
+
+def test_mcp_add_builds_codex_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+    monkeypatch.setattr(cli, "_parallelizer_repo_root", lambda cwd: Path("/repo"))
+    monkeypatch.setattr(cli.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda command, **kwargs: calls.append(command) or SimpleNamespace(returncode=0),
+    )
+
+    result = runner.invoke(cli.app, ["mcp", "add", "codex"])
+
+    assert result.exit_code == 0
+    assert calls == [
+        ["codex", "mcp", "add", "parallelizer", "--",
+         "uv", "run", "--project", "/repo", "python", "/repo/mcp_server.py"]
+    ]
+
+
+def test_mcp_add_builds_claude_command_with_scope(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+    monkeypatch.setattr(cli, "_parallelizer_repo_root", lambda cwd: Path("/repo"))
+    monkeypatch.setattr(cli.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda command, **kwargs: calls.append(command) or SimpleNamespace(returncode=0),
+    )
+
+    result = runner.invoke(cli.app, ["mcp", "add", "claude", "--scope", "local"])
+
+    assert result.exit_code == 0
+    assert calls == [
+        ["claude", "mcp", "add", "--scope", "local", "--transport", "stdio", "parallelizer", "--",
+         "uv", "run", "--project", "/repo", "python", "/repo/mcp_server.py"]
+    ]
+
+
+def test_mcp_add_rejects_unknown_agent() -> None:
+    result = runner.invoke(cli.app, ["mcp", "add", "vim"])
+
+    assert result.exit_code == 1
+    assert "agent must be 'claude' or 'codex'" in result.stderr
+
+
+def test_mcp_add_errors_when_agent_cli_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli, "_parallelizer_repo_root", lambda cwd: Path("/repo"))
+    monkeypatch.setattr(cli.shutil, "which", lambda name: None)
+
+    result = runner.invoke(cli.app, ["mcp", "add", "codex"])
+
+    assert result.exit_code == 1
+    assert "was not found on PATH" in result.stderr
+
+
 def test_global_init_preserves_unknown_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home = tmp_path / "home"
     config_dir = home / ".parallelizer"
@@ -867,6 +1002,17 @@ def _init_repo(tmp_path: Path, setup_body: str | None = None) -> Path:
     setup_dir.mkdir()
     body = setup_body or "setup_environment() { echo $1 > setup-number.txt; }\n"
     (setup_dir / "functions.sh").write_text(body)
+    _run(["git", "add", "."], repo)
+    _run(["git", "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "init"], repo)
+    return repo
+
+
+def _init_parallelizer_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _run(["git", "init"], repo)
+    (repo / "mcp_server.py").write_text("# entrypoint\n")
+    (repo / "pyproject.toml").write_text('[project]\nname = "parallelizer"\n')
     _run(["git", "add", "."], repo)
     _run(["git", "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "init"], repo)
     return repo
