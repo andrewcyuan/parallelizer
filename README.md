@@ -57,6 +57,10 @@ plr instructions >> CLAUDE.md
 # .parallelizer/functions.sh
 # Write a setup function.
 setup_environment() {
+	if [ -f "$PLR_SOURCE_REPO/.env" ] && [ ! -f ".env" ]; then
+		cp "$PLR_SOURCE_REPO/.env" ".env"
+	fi
+
 	npm i
 
 	npm run dev --port $((3000 + $1)) # first argument is the current worktree number
@@ -67,6 +71,8 @@ cleanup_environment() {
 	npm run stop-dev -- --port $((3000 + $1))
 }
 ```
+
+`setup_environment` and `cleanup_environment` run from the worktree. `$1` is the allocation number, `PLR_SOURCE_REPO` points to the original repo, and `PLR_WORKTREE` points to the current worktree. Parallelizer does not copy `.env` automatically because each project may need different secret handling, but the example above covers the common case.
 
 You can also have an agent do this for you!
 
@@ -180,7 +186,6 @@ claude mcp add --transport stdio parallelizer -- python <PATH_TO_REPO>/mcp_serve
 ## Future features
 
 [ ] Make tmux helpers generic and then map to other multiplexers, such as kitty
-
 
 
 

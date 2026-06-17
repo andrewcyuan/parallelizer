@@ -53,6 +53,33 @@ def test_create_tree_runs_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert record.setup_status == "done"
 
 
+def test_setup_receives_source_repo_and_worktree_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = _init_repo(
+        tmp_path,
+        setup_body=(
+            "setup_environment() {\n"
+            "  if [ -f \"$PLR_SOURCE_REPO/.env\" ] && [ ! -f \".env\" ]; then\n"
+            "    cp \"$PLR_SOURCE_REPO/.env\" \".env\"\n"
+            "  fi\n"
+            "  printf '%s' \"$PLR_SOURCE_REPO\" > source-repo.txt\n"
+            "  printf '%s' \"$PLR_WORKTREE\" > worktree-path.txt\n"
+            "  printf '%s' \"$1\" > setup-number.txt\n"
+            "}\n"
+        ),
+    )
+    (repo / ".env").write_text("TOKEN=source\n")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    _write_config(repo, tmp_path / "worktrees")
+
+    record = ParallelizerService(repo).create_tree(name="alpha", prompt="hello")
+
+    worktree = Path(record.worktree_path)
+    assert (worktree / ".env").read_text() == "TOKEN=source\n"
+    assert (worktree / "source-repo.txt").read_text() == str(repo)
+    assert (worktree / "worktree-path.txt").read_text() == record.worktree_path
+    assert (worktree / "setup-number.txt").read_text() == "1"
+
+
 def test_background_agent_updates_status(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = _init_repo(tmp_path)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
@@ -108,11 +135,17 @@ def test_setup_missing_function_preserves_error_record(
 
 def test_remove_tree_runs_cleanup_and_deletes_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     marker = tmp_path / "cleanup-number.txt"
+    source_marker = tmp_path / "cleanup-source-repo.txt"
+    worktree_marker = tmp_path / "cleanup-worktree.txt"
     repo = _init_repo(
         tmp_path,
         setup_body=(
             "setup_environment() { true; }\n"
-            f"cleanup_environment() {{ printf '%s' \"$1\" > \"{marker}\"; }}\n"
+            "cleanup_environment() {\n"
+            f"  printf '%s' \"$1\" > \"{marker}\"\n"
+            f"  printf '%s' \"$PLR_SOURCE_REPO\" > \"{source_marker}\"\n"
+            f"  printf '%s' \"$PLR_WORKTREE\" > \"{worktree_marker}\"\n"
+            "}\n"
         ),
     )
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
@@ -124,6 +157,8 @@ def test_remove_tree_runs_cleanup_and_deletes_state(tmp_path: Path, monkeypatch:
 
     assert removed.name == "alpha"
     assert marker.read_text() == "1"
+    assert source_marker.read_text() == str(repo)
+    assert worktree_marker.read_text() == record.worktree_path
     assert not Path(record.worktree_path).exists()
     assert service.state.get("alpha") is None
 
@@ -366,6 +401,8 @@ def test_manager_and_setup_prompts_include_operational_instructions() -> None:
     assert "ship feature" in manager
     assert "setup_environment" in setup
     assert "cleanup_environment" in setup
+    assert "PLR_SOURCE_REPO" in setup
+    assert "PLR_WORKTREE" in setup
     assert "use port offsets" in setup
 
 
@@ -380,6 +417,8 @@ def test_instructions_markdown_documents_commands_and_setup() -> None:
     assert "setup_environment" in instructions
     assert "cleanup_environment" in instructions
     assert "allocated worktree number as `$1`" in instructions
+    assert "PLR_SOURCE_REPO" in instructions
+    assert "PLR_WORKTREE" in instructions
 
 
 def test_agent_setup_command_accepts_optional_instruction_string(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -41,6 +41,8 @@ Requirements:
 - Keep the setup project-specific and minimal.
 - Install dependencies and start only the services this project normally needs for subagent work.
 - Use the allocation number for ports or other per-worktree resources when useful.
+- Use `PLR_SOURCE_REPO` for files from the original repo, such as copying `.env` into the worktree when needed.
+- `PLR_WORKTREE` is also available and points to the current worktree path.
 - Create `.parallelizer/local_config.json` only if this repo genuinely needs local overrides.
 - Do not change `~/.parallelizer/global_config.json`; that is handled by `plr init`.
 
@@ -79,10 +81,15 @@ Environment setup:
 - That file must define `setup_environment()`.
 - `setup_environment` receives the allocated worktree number as `$1`.
 - Use that number for per-worktree resources such as ports, database names, or temp directories.
+- Setup runs from the new worktree.
+- `PLR_SOURCE_REPO` points to the original repo path.
+- `PLR_WORKTREE` points to the current worktree path.
+- Use `PLR_SOURCE_REPO` to copy local files such as `.env` when the project needs them.
 - `plr` runs `setup_environment` after creating the worktree and before starting the agent.
 - If the function is missing or returns a non-zero status, setup fails and the worktree is marked as an error.
 - The same file may optionally define `cleanup_environment()`.
 - `cleanup_environment` receives the same allocation number as `$1`.
+- Cleanup runs from the worktree and receives the same `PLR_SOURCE_REPO` and `PLR_WORKTREE` variables.
 - `plr rm` and successful `plr merge` run `cleanup_environment` before removing the worktree.
 - If cleanup fails, removal stops unless `--force` was passed.
 """

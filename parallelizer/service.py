@@ -256,6 +256,7 @@ class ParallelizerService:
         result = subprocess.run(
             ["bash", "-lc", script, "parallelizer-setup", str(record.allocation_number)],
             cwd=record.worktree_path,
+            env=self._hook_env(record),
             text=True,
             capture_output=True,
             check=False,
@@ -280,6 +281,7 @@ class ParallelizerService:
         result = subprocess.run(
             ["bash", "-lc", script, "parallelizer-cleanup", str(record.allocation_number)],
             cwd=record.worktree_path,
+            env=self._hook_env(record),
             text=True,
             capture_output=True,
             check=False,
@@ -287,6 +289,12 @@ class ParallelizerService:
         if result.returncode != 0 and not force_cleanup:
             message = (result.stderr or result.stdout).strip()
             raise ParallelizerError(f"Cleanup failed for {record.name}: {message}")
+
+    def _hook_env(self, record: TreeRecord) -> Dict[str, str]:
+        env = os.environ.copy()
+        env["PLR_SOURCE_REPO"] = record.source_repo
+        env["PLR_WORKTREE"] = record.worktree_path
+        return env
 
     def _record_for_action(self, name: str) -> TreeRecord:
         record = self.state.get(name)
