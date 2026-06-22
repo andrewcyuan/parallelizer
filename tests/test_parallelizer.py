@@ -55,6 +55,21 @@ def test_create_tree_runs_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert record.setup_status == "done"
 
 
+def test_service_uses_source_repo_state_when_started_inside_worktree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _init_repo(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    _write_config(repo, tmp_path / "worktrees")
+    record = ParallelizerService(repo).create_tree(name="alpha", prompt="hello")
+
+    service = ParallelizerService(Path(record.worktree_path))
+
+    assert service.project.root == repo.resolve()
+    assert [item.name for item in service.list_records()] == ["alpha"]
+    assert service.worktree_info("alpha")["worktree_path"] == record.worktree_path
+
+
 def test_setup_receives_source_repo_and_worktree_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = _init_repo(
         tmp_path,

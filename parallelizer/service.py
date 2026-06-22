@@ -24,7 +24,7 @@ def utc_now() -> str:
 
 class ParallelizerService:
     def __init__(self, cwd: Path):
-        root = repo_root(cwd)
+        root = self._resolve_project_root(cwd)
         self.config = load_config(root)
         self.project = self._project(root)
         self.state = StateStore(self.project.state_file)
@@ -240,6 +240,32 @@ class ParallelizerService:
         worktree_root = Path(str(self.config["worktree_root"])).expanduser()
         state_file = Path("~/.parallelizer/state").expanduser() / f"{slug}.json"
         return Project(root=root, slug=slug, state_file=state_file, worktree_root=worktree_root)
+
+    def _resolve_project_root(self, cwd: Path) -> Path:
+        root = repo_root(cwd)
+        source_repo = self._source_repo_for_worktree(root)
+        if source_repo:
+            return source_repo
+        return root
+
+    def _source_repo_for_worktree(self, root: Path) -> Optional[Path]:
+        state_dir = Path("~/.parallelizer/state").expanduser()
+        if not state_dir.exists():
+            return None
+        for state_file in state_dir.glob("*.json"):
+            try:
+                records = StateStore(state_file).records()
+            except Exception:
+                continue
+            for record in records:
+                try:
+                    worktree_path = Path(record.worktree_path).resolve()
+                    source_repo = Path(record.source_repo).resolve()
+                except OSError:
+                    continue
+                if worktree_path == root:
+                    return source_repo
+        return None
 
     def _next_name(self, requested: Optional[str]) -> str:
         existing = {record.name for record in self.state.records()}
