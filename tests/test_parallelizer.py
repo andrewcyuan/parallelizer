@@ -968,7 +968,9 @@ def test_cd_consumes_fzf_selection_and_starts_shell_in_worktree(monkeypatch: pyt
     ]
     cd_calls = []
     exec_calls = []
+    fzf_inputs = []
     service = SimpleNamespace(
+        project=SimpleNamespace(root=Path("/tmp/repo")),
         list_records=lambda: records,
         worktree_info=lambda name: {"worktree_path": f"/tmp/{name}"},
     )
@@ -978,14 +980,43 @@ def test_cd_consumes_fzf_selection_and_starts_shell_in_worktree(monkeypatch: pyt
     monkeypatch.setattr(
         cli.subprocess,
         "run",
-        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="beta\tdone\t/tmp/beta\n"),
+        lambda *args, **kwargs: (
+            fzf_inputs.append(kwargs["input"])
+            or SimpleNamespace(returncode=0, stdout="beta\tdone\t/tmp/beta\n")
+        ),
     )
     monkeypatch.setattr(cli.os, "chdir", lambda path: cd_calls.append(path))
     monkeypatch.setattr(cli.os, "execvp", lambda file, args: exec_calls.append((file, args)))
 
     cli._cd(service, None)
 
+    assert fzf_inputs[0].splitlines()[0] == "main\tsource\t/tmp/repo"
     assert cd_calls == ["/tmp/beta"]
+    assert exec_calls == [("/bin/zsh", ["zsh"])]
+
+
+def test_cd_can_select_main_branch_from_menu(monkeypatch: pytest.MonkeyPatch) -> None:
+    cd_calls = []
+    exec_calls = []
+    service = SimpleNamespace(
+        project=SimpleNamespace(root=Path("/tmp/repo")),
+        list_records=lambda: [SimpleNamespace(name="alpha", status="done", worktree_path="/tmp/alpha")],
+        worktree_info=lambda name: {"worktree_path": f"/tmp/{name}"},
+    )
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setenv("SHELL", "/bin/zsh")
+    monkeypatch.setattr(cli.shutil, "which", lambda name: "/bin/fzf" if name == "fzf" else None)
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="main\tsource\t/tmp/repo\n"),
+    )
+    monkeypatch.setattr(cli.os, "chdir", lambda path: cd_calls.append(path))
+    monkeypatch.setattr(cli.os, "execvp", lambda file, args: exec_calls.append((file, args)))
+
+    cli._cd(service, None)
+
+    assert cd_calls == ["/tmp/repo"]
     assert exec_calls == [("/bin/zsh", ["zsh"])]
 
 

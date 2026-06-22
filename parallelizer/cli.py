@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import List, Optional
 
 import typer
@@ -260,12 +261,12 @@ def _list_worktrees(service: ParallelizerService) -> None:
 
 
 def _cd(service: ParallelizerService, name: Optional[str]) -> None:
-    records = service.list_records()
-    if not records:
-        raise ParallelizerError("No Parallelizer worktrees found.")
-    selected = _resolve_record_name(records, name)
-    info = service.worktree_info(selected)
-    os.chdir(info["worktree_path"])
+    if name:
+        info = service.worktree_info(name)
+        target_path = info["worktree_path"]
+    else:
+        target_path = _resolve_cd_target_path(service)
+    os.chdir(target_path)
     shell = os.environ.get("SHELL", "/bin/sh")
     os.execvp(shell, [Path(shell).name])
 
@@ -379,6 +380,20 @@ def _resolve_record_name(records: List[TreeRecord], name: Optional[str]) -> str:
     return _select_record_numbered(records)
 
 
+def _resolve_cd_target_path(service: ParallelizerService) -> str:
+    records = [
+        SimpleNamespace(name="main", status="source", worktree_path=str(service.project.root)),
+        *service.list_records(),
+    ]
+    if not sys.stdin.isatty():
+        raise ParallelizerError("A worktree name is required when stdin is not interactive.")
+    if shutil.which("fzf"):
+        selected = _select_record_path_fzf(records)
+        if selected:
+            return selected
+    return _select_record_path_numbered(records)
+
+
 def _select_record_fzf(records: List[TreeRecord]) -> Optional[str]:
     rows = "\n".join(f"{record.name}\t{record.status}\t{record.worktree_path}" for record in records)
     result = subprocess.run(
@@ -393,6 +408,23 @@ def _select_record_fzf(records: List[TreeRecord]) -> Optional[str]:
     return result.stdout.split("\t", 1)[0].strip()
 
 
+def _select_record_path_fzf(records: List[TreeRecord]) -> Optional[str]:
+    rows = "\n".join(f"{record.name}\t{record.status}\t{record.worktree_path}" for record in records)
+    result = subprocess.run(
+        ["fzf", "--with-nth=1,2,3"],
+        input=rows,
+        text=True,
+        stdout=subprocess.PIPE,
+        check=False,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    parts = result.stdout.rstrip("\n").split("\t", 2)
+    if len(parts) < 3:
+        return None
+    return parts[2].strip()
+
+
 def _select_record_numbered(records: List[TreeRecord]) -> str:
     for index, record in enumerate(records, start=1):
         typer.echo(f"{index}. {record.name}\t{record.status}\t{record.worktree_path}", err=True)
@@ -400,6 +432,15 @@ def _select_record_numbered(records: List[TreeRecord]) -> str:
     if choice < 1 or choice > len(records):
         raise ParallelizerError("Invalid worktree selection.")
     return records[choice - 1].name
+
+
+def _select_record_path_numbered(records: List[TreeRecord]) -> str:
+    for index, record in enumerate(records, start=1):
+        typer.echo(f"{index}. {record.name}\t{record.status}\t{record.worktree_path}", err=True)
+    choice = typer.prompt("Select worktree", type=int, err=True)
+    if choice < 1 or choice > len(records):
+        raise ParallelizerError("Invalid worktree selection.")
+    return records[choice - 1].worktree_path
 
 
 def _prompt_from_args(parts: List[str]) -> str:
