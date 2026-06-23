@@ -10,6 +10,9 @@ from types import SimpleNamespace
 from typing import List, Optional
 
 import typer
+from rich.console import Console
+from rich.table import Table
+from rich.text import Text
 
 from .agent_event import apply_event
 from .config import write_global_default_agent
@@ -243,21 +246,36 @@ def _list_worktrees(service: ParallelizerService) -> None:
     if not records:
         typer.echo("No Parallelizer worktrees found.")
         return
-    typer.echo("NAME\tSTATUS\tAGENT\tPID\tBRANCH\tPATH\tLOG")
+    table = Table(title="Parallelizer Worktrees", show_lines=False)
+    table.add_column("Name", style="bold", no_wrap=True)
+    table.add_column("Status", no_wrap=True)
+    table.add_column("Agent", no_wrap=True)
+    table.add_column("PID", justify="right", no_wrap=True)
+    table.add_column("Branch", no_wrap=True)
+    table.add_column("Path")
+    table.add_column("Log")
     for record in records:
-        typer.echo(
-            "\t".join(
-                [
-                    record.name,
-                    record.status,
-                    record.agent or "-",
-                    str(record.pid or "-"),
-                    record.branch,
-                    record.worktree_path,
-                    record.log_path or "-",
-                ]
-            )
+        table.add_row(
+            record.name,
+            _status_text(record.status),
+            record.agent or "-",
+            str(record.pid or "-"),
+            record.branch,
+            record.worktree_path,
+            record.log_path or "-",
         )
+    Console().print(table)
+
+
+def _status_text(status: str) -> Text:
+    styles = {
+        "done": "green",
+        "running": "cyan",
+        "awaiting-input": "yellow",
+        "error": "red",
+        "no-agent": "dim",
+    }
+    return Text(status, style=styles.get(status, ""))
 
 
 def _cd(service: ParallelizerService, name: Optional[str]) -> None:

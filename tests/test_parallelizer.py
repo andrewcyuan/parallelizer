@@ -940,6 +940,35 @@ def test_instructions_command_prints_markdown() -> None:
     assert "plr instructions" in result.stdout
 
 
+def test_list_worktrees_prints_human_readable_table(capsys: pytest.CaptureFixture[str]) -> None:
+    service = SimpleNamespace(
+        list_records=lambda: [
+            SimpleNamespace(
+                name="alpha",
+                status="running",
+                agent="codex",
+                pid=123,
+                branch="plr/alpha",
+                worktree_path="/tmp/alpha",
+                log_path="/tmp/alpha.log",
+            )
+        ]
+    )
+
+    cli._list_worktrees(service)
+
+    output = capsys.readouterr().out
+    assert "Parallelizer Worktrees" in output
+    assert "Name" in output
+    assert "Status" in output
+    assert "Agent" in output
+    assert "alpha" in output
+    assert "running" in output
+    assert "codex" in output
+    assert "/tmp/alpha" in output
+    assert "NAME\tSTATUS" not in output
+
+
 def test_resolve_record_requires_name_when_not_interactive(monkeypatch: pytest.MonkeyPatch) -> None:
     record = SimpleNamespace(name="alpha", status="done", worktree_path="/tmp/alpha")
     monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
