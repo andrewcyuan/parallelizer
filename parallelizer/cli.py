@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import json
 import os
 import shlex
@@ -490,16 +491,25 @@ def _edit_prompt(prompt: str) -> str:
     command = shlex.split(editor)
     if not command:
         raise ParallelizerError("$EDITOR is not set.")
-    with tempfile.NamedTemporaryFile("w+", encoding="utf-8", suffix=".md") as temp:
-        temp.write(prompt)
-        if prompt and not prompt.endswith("\n"):
-            temp.write("\n")
-        temp.flush()
-        result = subprocess.run([*command, temp.name], check=False)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        prompt_path = Path(temp_dir) / "prompt.md"
+        prompt_path.write_text(f"{prompt.rstrip()}\n" if prompt else "", encoding="utf-8")
+        tty = None
+        try:
+            try:
+                tty = builtins.open("/dev/tty", "r+")
+            except OSError:
+                pass
+            kwargs = {"check": False}
+            if tty is not None:
+                kwargs.update({"stdin": tty, "stdout": tty, "stderr": tty})
+            result = subprocess.run([*command, str(prompt_path)], **kwargs)
+        finally:
+            if tty is not None:
+                tty.close()
         if result.returncode != 0:
             raise ParallelizerError(f"Editor exited with status {result.returncode}.")
-        temp.seek(0)
-        return temp.read().strip()
+        return prompt_path.read_text(encoding="utf-8").strip()
 
 
 def _run_cli(callback) -> None:

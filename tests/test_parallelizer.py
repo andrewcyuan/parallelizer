@@ -953,11 +953,31 @@ def test_subagent_edit_mode_edits_prompt_before_starting(monkeypatch: pytest.Mon
     assert "worker\tdone\t/tmp/worker\tlog=/tmp/worker.log" in result.stdout
 
 
+def test_subagent_edit_mode_allows_empty_initial_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+    service = SimpleNamespace()
+
+    def create_subagent(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(name="worker", status="done", worktree_path="/tmp/worker", log_path="/tmp/worker.log")
+
+    service.create_subagent = create_subagent
+    monkeypatch.setattr(cli, "ParallelizerService", lambda path: service)
+    monkeypatch.setattr(cli, "_edit_prompt", lambda prompt: "edited prompt")
+
+    result = runner.invoke(cli.app, ["sub", "worker", "--edit", "--background"])
+
+    assert result.exit_code == 0
+    assert calls[0]["prompt"] == "edited prompt"
+    assert calls[0]["name"] == "worker"
+
+
 def test_edit_prompt_uses_editor(monkeypatch: pytest.MonkeyPatch) -> None:
     seen = {}
 
-    def fake_run(command, check):
+    def fake_run(command, **kwargs):
         seen["command"] = command
+        seen["kwargs"] = kwargs
         Path(command[-1]).write_text("edited prompt\n")
         return subprocess.CompletedProcess(command, 0)
 
@@ -966,6 +986,7 @@ def test_edit_prompt_uses_editor(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert cli._edit_prompt("seed prompt") == "edited prompt"
     assert seen["command"][:2] == ["vim", "-f"]
+    assert seen["kwargs"]["check"] is False
 
 
 def test_edit_prompt_requires_editor(monkeypatch: pytest.MonkeyPatch) -> None:
