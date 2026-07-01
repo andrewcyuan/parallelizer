@@ -891,6 +891,7 @@ def test_instructions_markdown_documents_commands_and_setup() -> None:
     instructions = plr_instructions_markdown()
 
     assert "plr sub [name] [prompt]" in instructions
+    assert "plr sub ... --edit" in instructions
     assert "plr wt NAME -- CMD..." in instructions
     assert "plr wt <name> -- git status --short" in instructions
     assert "plr wt <name> -- git diff" in instructions
@@ -930,6 +931,48 @@ def test_agent_setup_command_accepts_optional_instruction_string(monkeypatch: py
     assert agent is None
     assert model is None
     assert agent_args == []
+
+
+def test_subagent_edit_mode_edits_prompt_before_starting(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+    service = SimpleNamespace()
+
+    def create_subagent(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(name="worker", status="done", worktree_path="/tmp/worker", log_path="/tmp/worker.log")
+
+    service.create_subagent = create_subagent
+    monkeypatch.setattr(cli, "ParallelizerService", lambda path: service)
+    monkeypatch.setattr(cli, "_edit_prompt", lambda prompt: f"edited: {prompt}")
+
+    result = runner.invoke(cli.app, ["sub", "worker", "seed prompt", "--edit", "--background"])
+
+    assert result.exit_code == 0
+    assert calls[0]["prompt"] == "edited: seed prompt"
+    assert calls[0]["name"] == "worker"
+    assert "worker\tdone\t/tmp/worker\tlog=/tmp/worker.log" in result.stdout
+
+
+def test_edit_prompt_uses_editor(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = {}
+
+    def fake_run(command, check):
+        seen["command"] = command
+        Path(command[-1]).write_text("edited prompt\n")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setenv("EDITOR", "vim -f")
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+
+    assert cli._edit_prompt("seed prompt") == "edited prompt"
+    assert seen["command"][:2] == ["vim", "-f"]
+
+
+def test_edit_prompt_requires_editor(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EDITOR", raising=False)
+
+    with pytest.raises(ParallelizerError, match=r"\$EDITOR"):
+        cli._edit_prompt("seed prompt")
 
 
 def test_instructions_command_prints_markdown() -> None:

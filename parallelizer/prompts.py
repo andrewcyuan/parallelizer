@@ -64,6 +64,7 @@ Commands:
 - `plr sub [name] [prompt]`: create a worktree, run setup, then start a coding agent.
 - `plr subagent [name] [prompt]`: same as `plr sub`.
 - `plr sub ... --background`: start the agent in the background and write its log path.
+- `plr sub ... --edit`: open `$EDITOR` to revise the prompt before the agent starts.
 - `plr sub ... --model MODEL --agent-arg ARG`: pass a model or extra raw argument to `codex`/`claude`.
 - `plr ls`: list Parallelizer worktrees and their agent status.
 - `plr cd [name]`: start a shell in a worktree.

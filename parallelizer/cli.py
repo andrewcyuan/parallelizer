@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import List, Optional
@@ -65,9 +67,10 @@ def spawn_subagent(
     background: bool = typer.Option(False, "--background", help="Start as a background process."),
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Model to pass to codex/claude."),
     agent_arg: Optional[List[str]] = typer.Option(None, "--agent-arg", help="Extra raw agent argument."),
+    edit: bool = typer.Option(False, "--edit", help="Edit the prompt in $EDITOR before starting."),
 ) -> None:
     """Create a worktree and start a subagent."""
-    _run_cli(lambda service: _sub(service, name, prompt_parts or [], agent, background, model, agent_arg or []))
+    _run_cli(lambda service: _sub(service, name, prompt_parts or [], agent, background, model, agent_arg or [], edit))
 
 
 @app.command("ls")
@@ -188,8 +191,11 @@ def _sub(
     background: bool,
     model: Optional[str],
     agent_args: List[str],
+    edit: bool = False,
 ) -> None:
     prompt = _prompt_from_args(prompt_parts)
+    if edit:
+        prompt = _edit_prompt(prompt)
     record = service.create_subagent(
         prompt=prompt,
         name=name,
@@ -475,6 +481,25 @@ def _prompt_from_optional_arg(prompt: Optional[str]) -> str:
     if not sys.stdin.isatty():
         return sys.stdin.read().strip()
     return ""
+
+
+def _edit_prompt(prompt: str) -> str:
+    editor = os.environ.get("EDITOR")
+    if not editor:
+        raise ParallelizerError("$EDITOR is not set.")
+    command = shlex.split(editor)
+    if not command:
+        raise ParallelizerError("$EDITOR is not set.")
+    with tempfile.NamedTemporaryFile("w+", encoding="utf-8", suffix=".md") as temp:
+        temp.write(prompt)
+        if prompt and not prompt.endswith("\n"):
+            temp.write("\n")
+        temp.flush()
+        result = subprocess.run([*command, temp.name], check=False)
+        if result.returncode != 0:
+            raise ParallelizerError(f"Editor exited with status {result.returncode}.")
+        temp.seek(0)
+        return temp.read().strip()
 
 
 def _run_cli(callback) -> None:

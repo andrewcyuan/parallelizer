@@ -100,6 +100,10 @@ cat FEATURE_PLAN_1.md | plr sub "feature-1"
 # Agent/MCP usage can run in the background.
 plr sub worker "Complete task xyz." --background
 
+# Open $EDITOR to revise the prompt before the agent starts.
+plr sub worker --edit
+plr sub worker "Draft prompt seed." --edit
+
 # Optional model and extra agent args for codex/claude.
 plr sub worker "Complete task xyz." --model gpt-5 --agent-arg=--search
 ```
